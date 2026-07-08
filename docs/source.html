@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Source walkthrough — annotify</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h1>annotify</h1>
+        <p>v0.4.0 · pure Node + TS</p>
+        <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Overview</div>
+          <a href="index.html">Introduction</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html">Quick start</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="decorators.html">Decorators</a>
+          <a href="core.html">Core framework</a>
+          <a href="errors.html">Errors &amp; status codes</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Examples</div>
+          <a href="examples.html">Sample controllers</a>
+          <a href="testing.html">Smoke tests</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Internals</div>
+          <a href="configuration.html">Configuration</a>
+          <a href="source.html" class="active">Source walkthrough</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>Source walkthrough</h1>
+      <p class="lede">Annotated reference of every file in <code>src/</code>. Read top-to-bottom for the full picture, or jump to a specific module.</p>
+
+      <h2 id="entry">Public entry</h2>
+
+      <h3>src/index.ts</h3>
+      <pre><code>export {
+  Controller, RestController,
+  RequestMapping, GetMapping, PostMapping, PutMapping, DeleteMapping, PatchMapping,
+  RequestParam, PathVariable, RequestBody, RequestHeader,
+} from './decorators/index.js';
+
+export { AppBuilder } from './core/app.js';
+export { HttpError } from './core/errors.js';
+export { Router } from './core/router.js';
+export { scanControllers } from './core/scanner.js';</code></pre>
+      <p>The barrel that <code>import { ... } from 'annotify'</code> resolves to. Everything exported here is part of the public API.</p>
+
+      <h2 id="types">Types</h2>
+
+      <h3>src/types/http.ts</h3>
+      <pre><code>export type HttpMethod =
+  | 'GET' | 'POST' | 'PUT' | 'DELETE'
+  | 'PATCH' | 'HEAD' | 'OPTIONS';
+
+export const HTTP_METHODS: readonly HttpMethod[] = [
+  'GET', 'POST', 'PUT', 'DELETE',
+  'PATCH', 'HEAD', 'OPTIONS',
+];</code></pre>
+      <p>Single source of truth for HTTP verbs. Used by the router's <code>handlers</code> map and the server's method matching.</p>
+
+      <h3>src/types/metadata.ts</h3>
+      <pre><code>export type ParamKind =
+  | 'param' | 'path' | 'body' | 'header'
+  | 'req' | 'res' | 'context';
+
+export interface ParamMeta {
+  kind: ParamKind;
+  name?: string;
+  defaultValue?: string;
+}
+
+export interface RouteEntry {
+  method: HttpMethod;
+  subPath: string;
+  path: string;
+  handlerName: string;
+  paramTypes: ParamMeta[];
+  _handler?: Function;
+}
+
+export interface RouteMetadata {
+  basePath: string;
+  isRest: boolean;
+  routes: RouteEntry[];
+}</code></pre>
+      <p>Three types form the data backbone.</p>
+
+      <h2 id="decorators-source">Decorators</h2>
+
+      <h3>src/decorators/metadata.ts</h3>
+      <p>The metadata layer. Defines the <code>WeakMap</code> side-channel used by parameter decorators, and the helpers <code>ensureRouteMeta</code>, <code>getRouteMeta</code>, <code>getOrCreateParamRegistry</code>, <code>consumeParamRegistry</code>.</p>
+      <pre><code>export const ROUTE_METADATA = Symbol.for('annotify.route');
+
+const paramRegistry = new WeakMap&lt;object, Record&lt;string, ParamMeta[]&gt;&gt;();
+
+export function ensureRouteMeta(ctor: object): RouteMetadata {
+  if (!(ctor as any)[ROUTE_METADATA]) {
+    Object.defineProperty(ctor, ROUTE_METADATA, {
+      value: { basePath: '', isRest: false, routes: [] },
+      writable: true,
+      configurable: true,
+      enumerable: false,
+    });
+  }
+  return (ctor as any)[ROUTE_METADATA];
+}
+
+export function consumeParamRegistry(proto: object, methodName: string): ParamMeta[] {
+  const reg = paramRegistry.get(proto);
+  const params = reg?.[methodName];
+  if (reg) delete reg[methodName];
+  return params ?? [];
+}</code></pre>
+
+      <h3>src/decorators/path.ts</h3>
+      <p>Two pure functions — <code>joinPath</code> and <code>splitSegments</code> — plus a private <code>normalize</code>. They share responsibility for the path semantics (trailing-slash handling, leading-slash enforcing) that all routing decorators rely on.</p>
+
+      <h3>src/decorators/types.ts</h3>
+      <p>Local <code>ClassDecorator</code>, <code>MethodDecorator</code>, <code>ParameterDecorator</code> types matching the legacy TS signature. We define them locally so the project doesn't depend on the (slightly off) types in <code>lib.es5.d.ts</code>.</p>
+
+      <h3>src/decorators/controller.ts</h3>
+      <p>Just two factory functions: <code>@Controller(path?)</code> and <code>@RestController(path?)</code>. Both call <code>ensureRouteMeta(ctor)</code> and set <code>basePath</code>; the latter additionally sets <code>isRest = true</code>.</p>
+
+      <h3>src/decorators/params.ts</h3>
+      <p>Four parameter decorator factories (<code>@RequestParam</code>, <code>@PathVariable</code>, <code>@RequestBody</code>, <code>@RequestHeader</code>). Each returns a function that, when invoked with the (target, propertyKey, parameterIndex) tuple, writes a <code>ParamMeta</code> to the registry.</p>
+
+      <pre><code>export function PathVariable(name?: string): ParameterDecorator {
+  return (target, propertyKey, parameterIndex) =&gt; {
+    const reg = getOrCreateParamRegistry(target);
+    const list = (reg[String(propertyKey)] ??= []);
+    list[parameterIndex] = { kind: 'path', name };
+  };
+}</code></pre>
+
+      <h3>src/decorators/mapping.ts</h3>
+      <p>The five HTTP-verb decorators + the generic <code>@RequestMapping</code>. Each <code>makeMapping(method, path)</code> returns a method decorator that <strong>snapshots</strong> the per-parameter metadata accumulated in the side-channel and pushes a <code>RouteEntry</code> onto <code>meta.routes</code>. The full path is resolved later by <code>Router.addController</code>.</p>
+
+      <h3>src/decorators/index.ts</h3>
+      <p>Internal barrel re-export for the decorator modules.</p>
+
+      <h2 id="core-source">Core</h2>
+
+      <h3>src/core/route-node.ts</h3>
+      <p>Plain data class for trie nodes. One segment string, a map of literal children, an optional <code>varChild</code>, and a map of HTTP-verb handlers.</p>
+
+      <h3>src/core/router.ts</h3>
+      <p>The trie router. <code>addEntry</code> walks down the path creating nodes as needed and registers the handler at the final node. <code>match(method, path)</code> walks down the request path trying literals first, falling back to <code>varChild</code>. <code>methodsAt(path)</code> is for 405 detection.</p>
+
+      <pre><code>addController(meta, instance) {
+  for (const entry of meta.routes) {
+    entry._handler = (instance as any)[entry.handlerName].bind(instance);
+    entry.path = joinPath(meta.basePath, entry.subPath);  <span class="hl-com">// deferred join</span>
+    this.addEntry(entry);
+  }
+}</code></pre>
+
+      <h3>src/core/resolver.ts</h3>
+      <p>Reads <code>entry.paramTypes[i]</code> for each parameter position on the bound handler, dispatches by <code>kind</code>, and assembles the <code>args</code> array.</p>
+
+      <h3>src/core/context.ts</h3>
+      <p>Defines <code>RequestContext</code> — the bag passed to resolvers:</p>
+      <pre><code>export interface RequestContext {
+  req: IncomingMessage;
+  res: ServerResponse;
+  pathVars: Record&lt;string, string&gt;;
+  query: Record&lt;string, string | string[]&gt;;
+  body: unknown;
+  isRest: boolean;
+}</code></pre>
+
+      <h3>src/core/errors.ts</h3>
+      <p>The <code>HttpError</code> class plus a handful of private <code>sendX</code> helpers.</p>
+
+      <pre><code>export class HttpError extends Error {
+  status: number;
+  details?: unknown;
+  constructor(status: number, message: string, details?: unknown) {
+    super(message);
+    this.status = status;
+    this.details = details;
+  }
+}</code></pre>
+
+      <h3>src/core/scanner.ts</h3>
+      <p>Walks a directory, filters <code>.js</code> / <code>.mjs</code>, converts paths to file URLs, dynamically imports each module, and collects any export whose constructor has <code>ROUTE_METADATA</code>.</p>
+
+      <h3>src/core/server.ts</h3>
+      <p>The <code>createApp(router, opts)</code> factory. Reads the request body, walks the router, resolves arguments, calls the bound handler, and funnels errors through <code>sendInternalError</code>.</p>
+
+      <h3>src/core/app.ts</h3>
+      <p>The <code>AppBuilder</code> façade. Holds a list of controllers and a router, builds on demand, and exposes <code>listen(port, host?)</code>.</p>
+
+      <h2 id="app-source">App entry</h2>
+
+      <h3>src/main.ts</h3>
+      <pre><code>import { AppBuilder } from './index.js';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const PORT = Number(process.env.PORT ?? 3000);
+const HOST = process.env.HOST ?? '127.0.0.1';
+
+const app = new AppBuilder();
+const controllersDir = resolve(__dirname, '..', 'examples');
+
+await app.scan(controllersDir);
+const server = await app.listen(PORT, HOST);
+
+const shutdown = (signal: string) =&gt; {
+  console.log(<span class="hl-str">`\n[server] ${signal} received, shutting down...`</span>);
+  server.close(() =&gt; process.exit(0));
+  setTimeout(() =&gt; process.exit(1), 5000).unref();
+};
+process.on('SIGINT', () =&gt; shutdown('SIGINT'));
+process.on('SIGTERM', () =&gt; shutdown('SIGTERM'));</code></pre>
+
+      <h2 id="examples-source">Examples</h2>
+      <ul>
+        <li><a href="examples.html#user-controller"><strong>examples/user.controller.ts</strong></a> — <code>UserController</code>: full CRUD, 5 routes.</li>
+        <li><a href="examples.html#product-controller"><strong>examples/product.controller.ts</strong></a> — <code>ProductController</code>: class-level prefix, 3 routes including multi-path-variable.</li>
+      </ul>
+
+      <div class="footer">
+        annotify · MIT · by <a href="https://www.sanjaysokal.com/">Sanjay Sokal</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

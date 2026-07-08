@@ -1,0 +1,163 @@
+/* annotify documentation styles
+   Dark theme, slate background, teal accent, monospace code.
+   Two-column layout: sidebar nav + content column. */
+
+:root {
+  --bg: #0f1419;
+  --panel: #1a2028;
+  --panel-2: #232b35;
+  --border: #2f3a47;
+  --text: #e6edf3;
+  --text-dim: #9aa7b4;
+  --accent: #4fd1c5;
+  --accent-2: #7dd3fc;
+  --warn: #fbbf24;
+  --error: #f87171;
+  --ok: #4ade80;
+  --code-bg: #0b1014;
+  --code-border: #1f2937;
+  --link: #7dd3fc;
+  --link-hover: #bae6fd;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg); color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  line-height: 1.6; font-size: 15px;
+}
+
+a { color: var(--link); text-decoration: none; }
+a:hover { color: var(--link-hover); text-decoration: underline; }
+
+code, pre { font-family: "JetBrains Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace; }
+
+code {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  color: var(--accent);
+}
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  padding: 14px 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 14px 0;
+}
+pre code { background: transparent; border: 0; padding: 0; color: var(--text); font-size: inherit; }
+
+/* Layout */
+.layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+
+.sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 24px 0;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+}
+
+.sidebar-brand { padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.sidebar-brand h1 { margin: 0; font-size: 18px; color: var(--accent); letter-spacing: -0.02em; }
+.sidebar-brand p  { margin: 4px 0 0; font-size: 11px; color: var(--text-dim); font-family: monospace; }
+.sidebar-brand a  { color: var(--text-dim); }
+.sidebar-brand a:hover { color: var(--accent-2); }
+
+.nav-section { padding: 8px 0; }
+.nav-section-title {
+  padding: 4px 20px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.nav a {
+  display: block; padding: 6px 20px;
+  color: var(--text); font-size: 13px;
+  border-left: 2px solid transparent;
+}
+.nav a:hover { background: var(--panel-2); text-decoration: none; color: var(--accent-2); }
+.nav a.active { border-left-color: var(--accent); color: var(--accent); background: var(--panel-2); }
+
+.content { padding: 32px 48px 96px; max-width: 960px; }
+
+.content h1 {
+  font-size: 32px; margin: 0 0 8px;
+  letter-spacing: -0.02em;
+  border-bottom: 1px solid var(--border); padding-bottom: 12px;
+}
+.content h2 { font-size: 22px; margin: 40px 0 12px; letter-spacing: -0.01em; color: var(--accent-2); }
+.content h3 { font-size: 17px; margin: 28px 0 8px; color: var(--text); }
+.content p  { margin: 12px 0; }
+.content ul, .content ol { padding-left: 24px; margin: 12px 0; }
+.content li { margin: 4px 0; }
+.content hr { border: 0; border-top: 1px solid var(--border); margin: 32px 0; }
+
+.lede { font-size: 17px; color: var(--text-dim); margin: 0 0 28px; }
+
+/* Cards */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 24px 0; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
+.card h3 { margin-top: 0; font-size: 15px; color: var(--accent); }
+.card p { font-size: 13px; color: var(--text-dim); margin: 6px 0 0; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+th { background: var(--panel); font-weight: 600; color: var(--accent); }
+tr:nth-child(even) td { background: var(--panel); }
+
+/* Callouts */
+.callout { border-left: 3px solid var(--accent); background: var(--panel); padding: 12px 16px; margin: 16px 0; border-radius: 0 4px 4px 0; }
+.callout.warn  { border-left-color: var(--warn); }
+.callout.error { border-left-color: var(--error); }
+.callout p:first-child { margin-top: 0; }
+.callout p:last-child  { margin-bottom: 0; }
+
+/* Smoke-test rows */
+.test { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; margin: 4px 0; background: var(--panel); font-family: monospace; font-size: 13px; }
+.test .badge { font-size: 11px; padding: 2px 8px; border-radius: 3px; font-weight: 700; letter-spacing: 0.05em; }
+.test.pass { border-left: 3px solid var(--ok); }
+.test.fail { border-left: 3px solid var(--error); }
+.test .badge.pass { background: var(--ok); color: #062a14; }
+.test .badge.fail { background: var(--error); color: #2a0606; }
+.test .method { font-weight: 700; width: 60px; }
+.test .method.get    { color: #86efac; }
+.test .method.post   { color: #fbbf24; }
+.test .method.put    { color: #7dd3fc; }
+.test .method.delete { color: #f87171; }
+.test .url { color: var(--text); flex: 1; }
+.test .status { color: var(--text-dim); margin-left: auto; }
+
+/* File tree */
+.tree {
+  font-family: monospace; font-size: 13px;
+  background: var(--code-bg); border: 1px solid var(--code-border);
+  padding: 14px 16px; border-radius: 4px; margin: 12px 0;
+  white-space: pre; overflow-x: auto; color: var(--text-dim);
+}
+.tree .dir  { color: var(--accent-2); }
+.tree .file { color: var(--text); }
+
+/* Header anchors */
+.header-anchor { opacity: 0; margin-left: 8px; font-size: 0.8em; color: var(--text-dim); }
+h2:hover .header-anchor, h3:hover .header-anchor { opacity: 1; }
+
+/* Footer */
+.footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 13px; }
+
+/* Token classes */
+.hl-key { color: #c084fc; }
+.hl-str { color: #86efac; }
+.hl-num { color: #fbbf24; }
+.hl-com { color: #6b7280; font-style: italic; }
+.hl-fn  { color: #7dd3fc; }
+.hl-cls { color: #4fd1c5; }
+.hl-dec { color: #fb923c; font-weight: 600; }
+.hl-typ { color: #f472b6; }

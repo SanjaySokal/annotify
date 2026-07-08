@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Decorators — annotify</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h1>annotify</h1>
+        <p>v0.4.0 · pure Node + TS</p>
+        <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Overview</div>
+          <a href="index.html">Introduction</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html">Quick start</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="decorators.html" class="active">Decorators</a>
+          <a href="core.html">Core framework</a>
+          <a href="errors.html">Errors &amp; status codes</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Examples</div>
+          <a href="examples.html">Sample controllers</a>
+          <a href="testing.html">Smoke tests</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Internals</div>
+          <a href="configuration.html">Configuration</a>
+          <a href="source.html">Source walkthrough</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>Decorators</h1>
+      <p class="lede">Every decorator exported from <code>annotify</code>, with signatures, behavior, and examples.</p>
+
+      <h2 id="import">Import surface</h2>
+      <pre><code>import {
+  // class decorators
+  Controller, RestController,
+
+  // method decorators
+  RequestMapping, GetMapping, PostMapping,
+  PutMapping, DeleteMapping, PatchMapping,
+
+  // parameter decorators
+  RequestParam, PathVariable, RequestBody, RequestHeader,
+
+  // runtime
+  AppBuilder, HttpError, Router, scanControllers,
+} from 'annotify';</code></pre>
+
+      <h2 id="class">Class decorators</h2>
+
+      <h3 id="controller"><code>@Controller(path?)</code><a href="#controller" class="header-anchor">#</a></h3>
+      <p>Marks a class as a controller. The optional <code>path</code> is prepended to every route declared on its methods.</p>
+      <pre><code><span class="hl-dec">@Controller</span>('/api/v1/products')
+export class ProductController {
+  <span class="hl-dec">@GetMapping</span>('/')          <span class="hl-com">// → GET /api/v1/products</span>
+  all() { return products; }
+
+  <span class="hl-dec">@GetMapping</span>('/:id')       <span class="hl-com">// → GET /api/v1/products/:id</span>
+  one(<span class="hl-dec">@PathVariable</span>('id') id: string) { return products[id]; }
+}</code></pre>
+
+      <h3 id="rest-controller"><code>@RestController(path?)</code><a href="#rest-controller" class="header-anchor">#</a></h3>
+      <p>Same as <code>@Controller</code>, but additionally sets the <code>isRest</code> flag. With <code>AppBuilder.setDefaultIsRest(true)</code> (the default), all controllers are treated as JSON endpoints anyway, but the flag is exposed for future per-controller serialization overrides.</p>
+
+      <h2 id="method">Method decorators (route mapping)</h2>
+
+      <p>Each maps a method to an HTTP verb + path. The path is joined with the class-level prefix.</p>
+
+      <table>
+        <thead><tr><th>Decorator</th><th>HTTP method</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td><code>@GetMapping(path?)</code></td><td>GET</td><td><code>@GetMapping('/users')</code></td></tr>
+          <tr><td><code>@PostMapping(path?)</code></td><td>POST</td><td><code>@PostMapping('/users')</code></td></tr>
+          <tr><td><code>@PutMapping(path?)</code></td><td>PUT</td><td><code>@PutMapping('/:id')</code></td></tr>
+          <tr><td><code>@DeleteMapping(path?)</code></td><td>DELETE</td><td><code>@DeleteMapping('/:id')</code></td></tr>
+          <tr><td><code>@PatchMapping(path?)</code></td><td>PATCH</td><td><code>@PatchMapping('/:id')</code></td></tr>
+          <tr><td><code>@RequestMapping(path, method)</code></td><td>any</td><td><code>@RequestMapping('/foo', 'OPTIONS')</code></td></tr>
+        </tbody>
+      </table>
+
+      <p>All path arguments are optional — <code>@GetMapping()</code> matches the class prefix exactly. Trailing slashes are normalized away: <code>@GetMapping('/users/')</code> on a <code>@Controller('/api')</code> class becomes <code>GET /api/users</code>.</p>
+
+      <p>Path variables use a colon prefix: <code>/users/:id</code>. They are URL-decoded automatically.</p>
+
+      <pre><code><span class="hl-dec">@RestController</span>('/orders')
+export class OrderController {
+
+  <span class="hl-dec">@GetMapping</span>('/:orderId/items/:itemId')
+  item(
+    <span class="hl-dec">@PathVariable</span>('orderId') orderId: string,
+    <span class="hl-dec">@PathVariable</span>('itemId')  itemId: string,
+  ) {
+    return { orderId, itemId };
+  }
+}</code></pre>
+
+      <h2 id="param">Parameter decorators</h2>
+      <p>Parameter decorators bind parts of the incoming HTTP request to handler arguments. Their order in the method signature does not need to match the route declaration order — the resolver uses positional metadata captured at decoration time.</p>
+
+      <h3 id="path-variable"><code>@PathVariable(name?)</code><a href="#path-variable" class="header-anchor">#</a></h3>
+      <p>Reads a path variable from the matched route. Pass the variable name (without the colon). If you omit the name, the resolver falls back to the first <code>:var</code> it finds in the pattern — explicit names are recommended.</p>
+      <pre><code><span class="hl-dec">@GetMapping</span>('/users/:id')
+get(<span class="hl-dec">@PathVariable</span>('id') id: string) { <span class="hl-com">/* ... */</span> }</code></pre>
+
+      <h3 id="request-param"><code>@RequestParam(name?, defaultValue?)</code><a href="#request-param" class="header-anchor">#</a></h3>
+      <p>Reads a URL query parameter. The name is the key in the query string. If absent or empty, the optional <code>defaultValue</code> is used. Repeated query keys collapse to the first value.</p>
+
+      <p>The decorator has two overloads:</p>
+      <pre><code><span class="hl-dec">@RequestParam</span>('limit', '10')                                       <span class="hl-com">// positional</span>
+<span class="hl-dec">@RequestParam</span>({ name: 'limit', defaultValue: '10' })           <span class="hl-com">// options object</span></code></pre>
+
+      <h3 id="request-body"><code>@RequestBody()</code><a href="#request-body" class="header-anchor">#</a></h3>
+      <p>Parses the request body as JSON and binds it to the parameter. If <code>Content-Type</code> is not <code>application/json</code>, the server responds with <code>415 Unsupported Media Type</code> before the handler runs. Bodies larger than 1&nbsp;MB trigger <code>413 Payload Too Large</code>.</p>
+      <pre><code><span class="hl-dec">@PostMapping</span>('/users')
+create(<span class="hl-dec">@RequestBody</span>() body: User) { <span class="hl-com">/* ... */</span> }</code></pre>
+
+      <h3 id="request-header"><code>@RequestHeader(name?)</code><a href="#request-header" class="header-anchor">#</a></h3>
+      <p>Reads a single request header. Header lookup is case-insensitive (HTTP headers are normalized to lowercase by Node).</p>
+      <pre><code><span class="hl-dec">@PostMapping</span>('/login')
+login(<span class="hl-dec">@RequestHeader</span>('Authorization') auth: string) { <span class="hl-com">/* ... */</span> }</code></pre>
+
+      <h3 id="response-status"><code>@ResponseStatus(code)</code><a href="#response-status" class="header-anchor">#</a></h3>
+      <p>Method decorator. Sets the HTTP status code returned by the handler. Default is 200 for handlers that return a value, or 204 for handlers that return undefined.</p>
+      <pre><code><span class="hl-dec">@PostMapping</span>('/')
+<span class="hl-dec">@ResponseStatus</span>(201)
+create(<span class="hl-dec">@RequestBody</span>() body: User) {
+  <span class="hl-com">// any non-throw return → status will be 201</span>
+  return body;
+}</code></pre>
+
+      <h3 id="cross-origin"><code>@CrossOrigin(opts?)</code><a href="#cross-origin" class="header-anchor">#</a></h3>
+      <p>Method or class decorator. Adds CORS headers to responses and auto-handles <code>OPTIONS</code> preflight. See <a href="#cors">CORS</a> below for full details.</p>
+      <pre><code><span class="hl-dec">@CrossOrigin</span>({
+  origins: ['http://localhost:5173'],
+  credentials: true,
+  maxAge: 3600,
+})
+<span class="hl-dec">@RestController</span>('/users')
+export class UserController { <span class="hl-com">/* ... */</span> }</code></pre>
+
+      <h2 id="positional">Positional fallback</h2>
+      <p>If a parameter has no decorator at all, the resolver applies a positional fallback:</p>
+      <table>
+        <thead><tr><th>Index</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td><code>IncomingMessage</code> (the raw <code>req</code>)</td></tr>
+          <tr><td>1</td><td><code>ServerResponse</code> (the raw <code>res</code>)</td></tr>
+          <tr><td>2</td><td><code>RequestContext</code> (the full context)</td></tr>
+        </tbody>
+      </table>
+
+      <p>This is useful for low-level handlers that need direct access to the underlying Node objects:</p>
+      <pre><code><span class="hl-dec">@GetMapping</span>('/stream')
+stream(req: IncomingMessage, res: ServerResponse) {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.write('data: hello\n\n');
+  <span class="hl-com">// Note: returning a value won't be serialized — you've already written.</span>
+}</code></pre>
+
+      <h2 id="errors-decorators">Throwing errors</h2>
+      <p>Handlers can throw <code>HttpError</code> from <code>annotify</code>. The server converts these to JSON responses with the given status code.</p>
+      <pre><code>import { HttpError } from 'annotify';
+
+<span class="hl-dec">@GetMapping</span>('/:id')
+get(<span class="hl-dec">@PathVariable</span>('id') id: string) {
+  const user = users.find(u =&gt; u.id === Number(id));
+  if (!user) throw new HttpError(404, <span class="hl-str">`User ${id} not found`</span>);
+  return user;
+}</code></pre>
+
+      <p>Non-<code>HttpError</code> exceptions become <code>500 Internal Server Error</code>.</p>
+
+      <h2 id="cors">CORS</h2>
+      <p><code>@CrossOrigin</code> attaches CORS headers to responses and auto-handles <code>OPTIONS</code> preflight. It works at class level (default for every route in the controller) or method level (override for one route).</p>
+
+      <pre><code><span class="hl-dec">@CrossOrigin</span>({
+  origins: ['http://localhost:5173'],
+  credentials: true,
+  maxAge: 3600,
+})
+<span class="hl-dec">@RestController</span>('/users')
+export class UserController { <span class="hl-com">/* ... */</span> }</code></pre>
+
+      <p>Shorthand forms:</p>
+      <pre><code><span class="hl-dec">@CrossOrigin</span>()                                  <span class="hl-com">// '*' for all origins</span>
+<span class="hl-dec">@CrossOrigin</span>('https://app.example.com')        <span class="hl-com">// single origin</span>
+<span class="hl-dec">@CrossOrigin</span>(['https://a.com', 'https://b.com'])
+<span class="hl-dec">@CrossOrigin</span>({ origins: '*', methods: ['GET', 'POST'] })</code></pre>
+
+      <h3>What it does</h3>
+      <ul>
+        <li>Adds <code>Access-Control-Allow-Origin</code> (and <code>Vary: Origin</code> when origins is a list).</li>
+        <li>Adds <code>Access-Control-Allow-Methods</code> (defaults to all methods registered at the path).</li>
+        <li>Adds <code>Access-Control-Allow-Headers</code> (configurable).</li>
+        <li>Adds <code>Access-Control-Allow-Credentials: true</code> if <code>credentials: true</code>.</li>
+        <li>Adds <code>Access-Control-Max-Age</code> if <code>maxAge</code> is set.</li>
+        <li>Adds <code>Access-Control-Expose-Headers</code> if <code>exposedHeaders</code> is set.</li>
+        <li>Auto-replies to <code>OPTIONS</code> preflight at known paths with <code>204</code> + all of the above.</li>
+      </ul>
+
+      <h2 id="execution-order">Order of decorator execution</h2>
+      <div class="callout warn">
+        <p><strong>Important.</strong> TypeScript legacy decorators run <strong>method decorators before class decorators</strong>. This means a method decorator cannot read the class-level <code>basePath</code> at decoration time. annotify handles this by storing the method-level sub-path on each route entry and resolving the full path (<code>basePath + subPath</code>) at registration time inside <code>Router.addController</code>. If you author a custom decorator, follow the same pattern — store raw inputs, resolve later.</p>
+      </div>
+
+      <div class="footer">
+        annotify · MIT · by <a href="https://www.sanjaysokal.com/">Sanjay Sokal</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

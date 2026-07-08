@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Configuration — annotify</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h1>annotify</h1>
+        <p>v0.4.0 · pure Node + TS</p>
+        <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Overview</div>
+          <a href="index.html">Introduction</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html">Quick start</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="decorators.html">Decorators</a>
+          <a href="core.html">Core framework</a>
+          <a href="errors.html">Errors &amp; status codes</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Examples</div>
+          <a href="examples.html">Sample controllers</a>
+          <a href="testing.html">Smoke tests</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Internals</div>
+          <a href="configuration.html" class="active">Configuration</a>
+          <a href="source.html">Source walkthrough</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>Configuration</h1>
+      <p class="lede">Reference for <code>tsconfig.json</code> and <code>package.json</code> setup when using annotify.</p>
+
+      <h2 id="tsconfig">tsconfig.json</h2>
+      <p>annotify requires legacy TypeScript decorators. Use this as a starting point:</p>
+
+      <pre><code>{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": "./",
+    "outDir": "./dist",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": false,
+    "useDefineForClassFields": false,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*"]
+}</code></pre>
+
+      <h3>Option reference</h3>
+
+      <table>
+        <thead>
+          <tr><th>Option</th><th>Recommended</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>experimentalDecorators</code></td>
+            <td><code>true</code></td>
+            <td>Without this, parameter decorators (<code>@PathVariable</code>, <code>@RequestBody</code>, <code>@RequestParam</code>, <code>@RequestHeader</code>) are stripped from the compiled output. The decorators still type-check, but they have no runtime effect.</td>
+          </tr>
+          <tr>
+            <td><code>emitDecoratorMetadata</code></td>
+            <td><code>false</code></td>
+            <td>annotify does not use <code>Reflect.metadata</code>. Setting this to <code>true</code> would emit type metadata you don't need and increase output size.</td>
+          </tr>
+          <tr>
+            <td><code>useDefineForClassFields</code></td>
+            <td><code>false</code></td>
+            <td>With this <code>true</code>, class fields are defined via <code>Object.defineProperty</code> and decorators on those fields may not apply. <code>false</code> lets class fields initialize in the standard ES way that decorators expect.</td>
+          </tr>
+          <tr>
+            <td><code>target</code></td>
+            <td><code>"ES2022"</code></td>
+            <td>annotify's output uses standard class fields and async iteration. ES2022 covers both.</td>
+          </tr>
+          <tr>
+            <td><code>module</code> / <code>moduleResolution</code></td>
+            <td><code>"NodeNext"</code></td>
+            <td>Matches annotify's <code>"type": "module"</code>. The scanner uses <code>pathToFileURL</code> + <code>import()</code>, which requires real ESM.</td>
+          </tr>
+          <tr>
+            <td><code>strict</code></td>
+            <td><code>true</code></td>
+            <td>annotify's own type signatures are designed for strict mode.</td>
+          </tr>
+          <tr>
+            <td><code>esModuleInterop</code></td>
+            <td><code>true</code></td>
+            <td>Lets you import CommonJS modules with default-import semantics if needed.</td>
+          </tr>
+          <tr>
+            <td><code>skipLibCheck</code></td>
+            <td><code>true</code></td>
+            <td>Skips type checking inside <code>node_modules</code>; faster builds.</td>
+          </tr>
+          <tr>
+            <td><code>declaration</code></td>
+            <td><code>true</code></td>
+            <td>If you're publishing your own package that uses annotify, you want <code>.d.ts</code> files emitted alongside the JS.</td>
+          </tr>
+          <tr>
+            <td><code>sourceMap</code> / <code>declarationMap</code></td>
+            <td><code>true</code></td>
+            <td>Helpful for stack traces to point at your TypeScript source.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="package-json">package.json</h2>
+
+      <p>For a project that consumes annotify:</p>
+      <pre><code>{
+  "name": "my-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "annotify": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}</code></pre>
+
+      <h3>Notes</h3>
+      <ul>
+        <li><strong>"type": "module"</strong> — required so <code>import</code> / <code>export</code> statements work without file extensions everywhere. annotify is itself ESM.</li>
+        <li><strong>"scripts"</strong> — <code>build</code> runs <code>tsc</code>; <code>start</code> runs the compiled output. <code>dev</code> uses <code>tsc --watch</code> for live rebuilding.</li>
+        <li><strong>"dependencies"</strong> — <code>annotify</code> only. Zero transitive deps.</li>
+        <li><strong>"devDependencies"</strong> — <code>typescript</code> and <code>@types/node</code>.</li>
+      </ul>
+
+      <h2 id="env">Environment variables</h2>
+      <p>The default <code>main.ts</code> honors:</p>
+      <table>
+        <thead><tr><th>Variable</th><th>Default</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>PORT</code></td><td><code>3000</code></td><td>Port for <code>AppBuilder.listen()</code></td></tr>
+          <tr><td><code>HOST</code></td><td><code>127.0.0.1</code></td><td>Host binding</td></tr>
+        </tbody>
+      </table>
+
+      <p>You can replace this with anything — <code>AppBuilder.listen(port, host?)</code> takes both explicitly.</p>
+
+      <h2 id="output">Recommended directory layout</h2>
+      <div class="tree"><span class="dir">my-app/</span>
+├── <span class="dir">src/</span>
+│   ├── <span class="dir">controllers/</span>
+│   │   ├── UserController.ts
+│   │   └── ProductController.ts
+│   └── main.ts
+├── <span class="dir">dist/</span>                    <span class="com"># tsc output, scanned at runtime</span>
+├── package.json
+└── tsconfig.json</div>
+
+      <div class="footer">
+        annotify · MIT · by <a href="https://www.sanjaysokal.com/">Sanjay Sokal</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

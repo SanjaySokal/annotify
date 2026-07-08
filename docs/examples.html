@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sample controllers — annotify</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h1>annotify</h1>
+        <p>v0.4.0 · pure Node + TS</p>
+        <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Overview</div>
+          <a href="index.html">Introduction</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html">Quick start</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="decorators.html">Decorators</a>
+          <a href="core.html">Core framework</a>
+          <a href="errors.html">Errors &amp; status codes</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Examples</div>
+          <a href="examples.html" class="active">Sample controllers</a>
+          <a href="testing.html">Smoke tests</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Internals</div>
+          <a href="configuration.html">Configuration</a>
+          <a href="source.html">Source walkthrough</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>Sample controllers</h1>
+      <p class="lede">Two complete controllers from the annotify example project, with annotation-by-annotation commentary.</p>
+
+      <h2 id="user-controller">UserController</h2>
+      <p><code>examples/user.controller.ts</code> — a small in-memory CRUD for users. Demonstrates <code>@RestController</code>, every mapping verb, all four parameter decorators, and the typed-error pattern.</p>
+
+      <h3>Source</h3>
+      <pre><code>import {
+  RestController, GetMapping, PostMapping, PutMapping, DeleteMapping,
+  RequestParam, PathVariable, RequestBody, RequestHeader,
+  HttpError,
+} from 'annotify';
+
+interface User {
+  id: number;
+  name: string;
+}
+
+const users: User[] = [
+  { id: 1, name: 'Ada' },
+  { id: 2, name: 'Grace' },
+];
+
+<span class="hl-dec">@RestController</span>('/users')
+export class UserController {
+
+  <span class="hl-dec">@GetMapping</span>('/')
+  list(<span class="hl-dec">@RequestParam</span>('limit', '10') limit: string) {
+    const n = Math.max(0, Math.min(users.length, Number(limit) || users.length));
+    return { count: users.length, items: users.slice(0, n) };
+  }
+
+  <span class="hl-dec">@GetMapping</span>('/:id')
+  get(<span class="hl-dec">@PathVariable</span>('id') id: string) {
+    const user = users.find((u) =&gt; u.id === Number(id));
+    if (!user) throw new HttpError(404, <span class="hl-str">`User ${id} not found`</span>);
+    return user;
+  }
+
+  <span class="hl-dec">@PostMapping</span>('/')
+  create(
+    <span class="hl-dec">@RequestBody</span>() body: User,
+    <span class="hl-dec">@RequestHeader</span>('X-Token') token: string,
+  ) {
+    if (!token) throw new HttpError(400, 'X-Token header is required');
+    if (!body || typeof body.id !== 'number' || typeof body.name !== 'string') {
+      throw new HttpError(400, 'Body must be { id: number, name: string }');
+    }
+    users.push(body);
+    return { created: body, echoedToken: token };
+  }
+
+  <span class="hl-dec">@PutMapping</span>('/:id')
+  update(
+    <span class="hl-dec">@PathVariable</span>('id') id: string,
+    <span class="hl-dec">@RequestBody</span>() body: User,
+  ) {
+    const i = users.findIndex((u) =&gt; u.id === Number(id));
+    if (i &lt; 0) throw new HttpError(404, <span class="hl-str">`User ${id} not found`</span>);
+    users[i] = body;
+    return users[i];
+  }
+
+  <span class="hl-dec">@DeleteMapping</span>('/:id')
+  remove(<span class="hl-dec">@PathVariable</span>('id') id: string) {
+    const i = users.findIndex((u) =&gt; u.id === Number(id));
+    if (i &lt; 0) throw new HttpError(404, <span class="hl-str">`User ${id} not found`</span>);
+    const [removed] = users.splice(i, 1);
+    return { deleted: removed };
+  }
+}</code></pre>
+
+      <h3>Routes registered</h3>
+      <table>
+        <thead><tr><th>Method</th><th>Path</th><th>Handler</th></tr></thead>
+        <tbody>
+          <tr><td>GET</td><td><code>/users</code></td><td><code>list(limit)</code></td></tr>
+          <tr><td>GET</td><td><code>/users/:id</code></td><td><code>get(id)</code></td></tr>
+          <tr><td>POST</td><td><code>/users</code></td><td><code>create(body, token)</code></td></tr>
+          <tr><td>PUT</td><td><code>/users/:id</code></td><td><code>update(id, body)</code></td></tr>
+          <tr><td>DELETE</td><td><code>/users/:id</code></td><td><code>remove(id)</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Annotation commentary</h3>
+      <ul>
+        <li><code>@RestController('/users')</code> — base path <code>/users</code> + flag for JSON serialization.</li>
+        <li><code>@RequestParam('limit', '10')</code> — second argument is the default value, used when the query parameter is absent or empty.</li>
+        <li><code>@PathVariable('id')</code> — explicitly named, so the resolver does not need to guess.</li>
+        <li><code>@RequestBody()</code> takes no arguments — JSON is the only body format.</li>
+        <li><code>@RequestHeader('X-Token')</code> — header lookup is case-insensitive; passing the canonical form is convention.</li>
+        <li><code>throw new HttpError(404, …)</code> — surfaces a typed error that the server turns into the right HTTP response.</li>
+      </ul>
+
+      <h2 id="product-controller">ProductController</h2>
+      <p><code>examples/product.controller.ts</code> — demonstrates class-level <code>@Controller</code> (without <code>Rest</code>), an optional query parameter with default, and multiple path variables on the same route.</p>
+
+      <h3>Source</h3>
+      <pre><code>import { Controller, GetMapping, PathVariable, RequestParam } from 'annotify';
+
+interface Product {
+  id: string;
+  name: string;
+}
+
+const products: Product[] = [
+  { id: '1', name: 'Widget' },
+  { id: '2', name: 'Gadget' },
+];
+
+<span class="hl-dec">@Controller</span>('/api/v1/products')
+export class ProductController {
+
+  <span class="hl-dec">@GetMapping</span>('/')
+  all(<span class="hl-dec">@RequestParam</span>('q') q: string = '') {
+    if (!q) return products;
+    return products.filter((p) =&gt; p.name.toLowerCase().includes(q.toLowerCase()));
+  }
+
+  <span class="hl-dec">@GetMapping</span>('/:id')
+  one(<span class="hl-dec">@PathVariable</span>('id') id: string) {
+    return products.find((p) =&gt; p.id === id) ?? null;
+  }
+
+  <span class="hl-dec">@GetMapping</span>('/:id/reviews/:reviewId')
+  review(
+    <span class="hl-dec">@PathVariable</span>('id') id: string,
+    <span class="hl-dec">@PathVariable</span>('reviewId') reviewId: string,
+  ) {
+    return { productId: id, reviewId, body: <span class="hl-str">`Review ${reviewId} of product ${id}`</span> };
+  }
+}</code></pre>
+
+      <h3>Routes registered</h3>
+      <table>
+        <thead><tr><th>Method</th><th>Path</th><th>Handler</th></tr></thead>
+        <tbody>
+          <tr><td>GET</td><td><code>/api/v1/products</code></td><td><code>all(q)</code></td></tr>
+          <tr><td>GET</td><td><code>/api/v1/products/:id</code></td><td><code>one(id)</code></td></tr>
+          <tr><td>GET</td><td><code>/api/v1/products/:id/reviews/:reviewId</code></td><td><code>review(id, reviewId)</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Annotation commentary</h3>
+      <ul>
+        <li><code>@Controller('/api/v1/products')</code> — the <code>/api/v1</code> prefix is part of the class-level path, demonstrating that you can put API versioning in one place.</li>
+        <li><code>@RequestParam('q') q: string = ''</code> — the TypeScript default is a runtime fallback too: if the query parameter is absent, the resolver passes <code>undefined</code> and the default kicks in.</li>
+        <li>Multiple path variables on a single route are matched in order from the URL.</li>
+      </ul>
+
+      <h2>Idioms</h2>
+      <div class="callout">
+        <p><strong>Validate inside the handler.</strong> annotify does not impose a validation layer. Validate inputs in the handler body and throw <code>HttpError(400, ...)</code> on bad input. Pulling in Zod or similar is fine — that would be a userland concern.</p>
+      </div>
+
+      <div class="callout">
+        <p><strong>Return plain JSON.</strong> Whatever your handler returns is serialized as JSON (when <code>defaultIsRest</code> is true, which is the default). Return an object; the framework handles <code>JSON.stringify</code>.</p>
+      </div>
+
+      <div class="callout warn">
+        <p><strong>Module-scoped state is fine.</strong> The controllers here use top-level <code>const users</code> and <code>const products</code> arrays. They survive across requests within the same Node process, so the demo's CRUD operations feel real. In a production app, swap this for a database connection.</p>
+      </div>
+
+      <div class="footer">
+        annotify · MIT · by <a href="https://www.sanjaysokal.com/">Sanjay Sokal</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Core framework — annotify</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h1>annotify</h1>
+        <p>v0.4.0 · pure Node + TS</p>
+        <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Overview</div>
+          <a href="index.html">Introduction</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html">Quick start</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="decorators.html">Decorators</a>
+          <a href="core.html" class="active">Core framework</a>
+          <a href="errors.html">Errors &amp; status codes</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Examples</div>
+          <a href="examples.html">Sample controllers</a>
+          <a href="testing.html">Smoke tests</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Internals</div>
+          <a href="configuration.html">Configuration</a>
+          <a href="source.html">Source walkthrough</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>Core framework</h1>
+      <p class="lede">The non-decorator pieces — Router, Scanner, Resolver, Server, AppBuilder, and the error model. Read this to understand the request lifecycle or to extend the framework.</p>
+
+      <h2 id="architecture">Architecture at a glance</h2>
+      <p>The request lifecycle:</p>
+
+      <pre><code>HTTP request
+   │
+   ▼
+┌──────────────────┐
+│  http.Server     │   (createServer in core/server.ts)
+│  - read body     │
+│  - parse query   │
+└────────┬─────────┘
+         │
+         ▼
+┌────��─────────────┐
+│  Router.match()  │   (trie walk in core/router.ts)
+└────────┬─────────┘
+         │  match?
+         ├─ no path exists    → 404
+         ├─ path exists,      → 405 + Allow header
+         │  wrong method
+         │
+         ▼ yes
+┌──────────────────┐
+│  Resolver        │   (core/resolver.ts reads ParamMeta[])
+│  resolveArgs()   │
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│  Handler call    │   (entry._handler bound to controller instance)
+│  await fn(...args)
+└────────┬─────────┘
+         │
+         ├─ returns value   → JSON 200
+         ├─ returns void    → 204
+         └─ throws          → HttpError status, else 500
+</code></pre>
+
+      <h2 id="router">Router</h2>
+      <p><code>src/core/router.ts</code> &nbsp;·&nbsp; <code>src/core/route-node.ts</code></p>
+
+      <p>The router is a trie keyed on URL segments. Each node has:</p>
+      <ul>
+        <li><code>children</code> — a <code>Map</code> of literal-segment children (e.g. <code>"users"</code>).</li>
+        <li><code>varChild</code> — at most one path-variable child (e.g. <code>":id"</code>).</li>
+        <li><code>handlers</code> — a <code>Map</code> from HTTP method to <code>RouteEntry</code>.</li>
+      </ul>
+
+      <h3>Matching algorithm</h3>
+      <p>For each segment of the request path:</p>
+      <ol>
+        <li>Look for a literal child first. If found, descend.</li>
+        <li>If no literal child, fall back to <code>varChild</code>. Record the variable name → value mapping.</li>
+        <li>If neither exists, the route doesn't match → <code>null</code>.</li>
+      </ol>
+
+      <p>Literal priority is important: <code>/users/me</code> matches before <code>/users/:id</code> when both are registered. Path variables are URL-decoded before being stored.</p>
+
+      <h3>Method Not Allowed (405)</h3>
+      <p>When a path exists but the request method has no handler, <code>Router.methodsAt(path)</code> returns the list of registered methods. The server emits an <code>Allow</code> header with them and a 405 JSON body.</p>
+
+      <h2 id="resolver">Resolver</h2>
+      <p><code>src/core/resolver.ts</code></p>
+
+      <p>The resolver inspects each parameter position on the bound handler, looks up the corresponding <code>ParamMeta</code> from <code>entry.paramTypes[i]</code>, and pulls the value from the right place in the <code>RequestContext</code>:</p>
+
+      <table>
+        <thead><tr><th><code>kind</code></th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td><code>'path'</code></td><td><code>ctx.pathVars[name]</code></td></tr>
+          <tr><td><code>'param'</code></td><td><code>ctx.query[name]</code> (first value, with default fallback)</td></tr>
+          <tr><td><code>'body'</code></td><td><code>ctx.body</code></td></tr>
+          <tr><td><code>'header'</code></td><td><code>ctx.req.headers[name.toLowerCase()]</code></td></tr>
+          <tr><td><code>'req'</code></td><td><code>ctx.req</code></td></tr>
+          <tr><td><code>'res'</code></td><td><code>ctx.res</code></td></tr>
+          <tr><td><code>'context'</code></td><td><code>ctx</code></td></tr>
+          <tr><td>(no meta)</td><td>Positional: <code>ctx.req</code>, <code>ctx.res</code>, <code>ctx</code>, then <code>undefined</code></td></tr>
+        </tbody>
+      </table>
+
+      <p>If a parameter has no decorator and is not in position 0–2, <code>undefined</code> is passed. This keeps handlers tolerant of optional/extra parameters.</p>
+
+      <h2 id="scanner">Scanner</h2>
+      <p><code>src/core/scanner.ts</code></p>
+
+      <p>The scanner recursively walks a directory looking for compiled <code>.js</code> / <code>.mjs</code> files, dynamically imports each, and collects exports whose constructor has <code>ROUTE_METADATA</code> set.</p>
+
+      <pre><code>scanControllers(rootDir):
+  files = walk(rootDir)             <span class="hl-com">// recursive fs.readdirSync</span>
+  ctors = []
+  for file in files:
+    if ext not in (.js, .mjs): continue
+    url = pathToFileURL(file).href  <span class="hl-com">// Windows-safe file:// URL</span>
+    mod = await import(url)
+    for export of Object.values(mod):
+      if export is function and export[ROUTE_METADATA]:
+        ctors.push(export)
+  return ctors</code></pre>
+
+      <div class="callout">
+        <p><strong>Windows note.</strong> <code>pathToFileURL</code> from <code>node:url</code> is required because dynamic <code>import()</code> on Windows refuses raw absolute paths. The scanner always uses URLs.</p>
+      </div>
+
+      <p>The scanner skips files that fail to import — they're likely non-class helpers — so you can keep utility modules in the same directory.</p>
+
+      <h2 id="server">Server</h2>
+      <p><code>src/core/server.ts</code></p>
+
+      <p>The server wraps Node's native <code>http.createServer</code> with the request-handling pipeline:</p>
+      <ul>
+        <li>Parse the request method and URL.</li>
+        <li>Read the body (only for POST/PUT/PATCH). Enforce 1&nbsp;MB cap (→ 413). Reject non-JSON content types (→ 415).</li>
+        <li>Call <code>router.match</code>. On miss, fall through to 405 or 404.</li>
+        <li>Build a <code>RequestContext</code> and call <code>resolver.resolveArgs</code>.</li>
+        <li>Invoke the bound handler, await its result, and serialize.</li>
+        <li>Any thrown error is funneled through <code>sendInternalError</code>, which preserves <code>HttpError</code> status codes and turns everything else into 500.</li>
+      </ul>
+
+      <h3>Response conventions</h3>
+      <ul>
+        <li>Handler returns a value → <code>200</code> + JSON body.</li>
+        <li>Handler returns <code>undefined</code> → <code>204 No Content</code>.</li>
+        <li>Handler throws <code>HttpError(status, message)</code> → that status + JSON <code>{ error, message }</code>.</li>
+        <li>Any other throw → <code>500</code> + JSON <code>{ error: "Internal Server Error", message }</code>.</li>
+        <li>If the handler already wrote to <code>res</code>, the server does not write again.</li>
+      </ul>
+
+      <h2 id="appbuilder">AppBuilder</h2>
+      <p><code>src/core/app.ts</code></p>
+
+      <pre><code>class AppBuilder {
+  scan(dir: string): Promise&lt;this&gt;        <span class="hl-com">// auto-discover controllers</span>
+  register(ctor: Function): this           <span class="hl-com">// manual registration</span>
+  setDefaultIsRest(v: boolean): this        <span class="hl-com">// default JSON behavior</span>
+  build(): Router                          <span class="hl-com">// instantiate + bind handlers</span>
+  listen(port: number, host?: string): Promise&lt;http.Server&gt;
+}</code></pre>
+
+      <p>Typical usage:</p>
+      <pre><code>const app = new AppBuilder();
+await app.scan('./dist/controllers');
+const server = await app.listen(3000);
+<span class="hl-com">// server is an http.Server; close() it on shutdown</span></code></pre>
+
+      <p><code>listen</code> returns the underlying <code>http.Server</code>. Wire it to <code>SIGINT</code>/<code>SIGTERM</code> for graceful shutdown.</p>
+
+      <h2 id="errors-core">Errors</h2>
+      <p><code>src/core/errors.ts</code></p>
+
+      <p>The <code>HttpError</code> class is the public error type:</p>
+      <pre><code>class HttpError extends Error {
+  status: number;
+  details?: unknown;
+  constructor(status: number, message: string, details?: unknown);
+}</code></pre>
+
+      <p>Internal helpers (<code>sendNotFound</code>, <code>sendMethodNotAllowed</code>, <code>sendPayloadTooLarge</code>, <code>sendUnsupportedMediaType</code>, <code>sendInternalError</code>) are not exported; they're used by the server and the resolver. You can still construct an <code>HttpError</code> from any handler and the framework will turn it into the right HTTP response.</p>
+
+      <h2 id="metadata">Metadata side-channel</h2>
+      <p><code>src/decorators/metadata.ts</code></p>
+
+      <p>There is no <code>reflect-metadata</code> dependency. Instead, <code>src/decorators/metadata.ts</code> defines a module-level <code>WeakMap&lt;object, Record&lt;string, ParamMeta[]&gt;&gt;</code> keyed by the class prototype. Parameter decorators write to it; method decorators read it. Once a method's metadata is consumed, that method's slot is deleted — the registry is per-decoration lifecycle.</p>
+
+      <p>The class-level metadata (basePath, isRest, the array of route entries) lives on the class itself under the symbol <code>Symbol.for('annotify.route')</code>, set via <code>Object.defineProperty</code> with <code>enumerable: false</code> so it does not pollute <code>Object.keys(controller)</code>.</p>
+
+      <h2 id="logger">Request logger</h2>
+      <p><code>src/core/logger.ts</code></p>
+      <p>Turn on per-request access logging with <code>app.useLogger({ enabled: true })</code>. The default format prints one line per request:</p>
+      <pre><code>[annotify] 2026-07-06T15:32:18.123Z  GET    /users/1     200  3 ms
+[annotify] 2026-07-06T15:32:18.158Z  POST   /users/      201  1 ms
+[annotify] 2026-07-06T15:32:18.221Z  GET    /nope        404  0 ms</code></pre>
+
+      <p>Pass a custom <code>format</code> function for total control. The server wraps <code>res.writeHead</code> to capture the actual status code (which may have been set by <code>@ResponseStatus</code>, by <code>HttpError</code>, or by the framework itself for 404/405) and logs once the response ends.</p>
+
+      <h2 id="introspection">Routes introspection</h2>
+      <p><code>app.exposeRoutes()</code> serves a JSON snapshot of every registered route at <code>GET /__annotify/routes</code> by default. The router's <code>listRoutes()</code> method walks the trie and returns:</p>
+
+      <pre><code>{
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/users/:id",
+      "handlerName": "get",
+      "paramTypes": [{ "kind": "path", "name": "id" }],
+      "classCors": {
+        "origins": ["http://localhost:5173"],
+        "credentials": true,
+        "maxAge": 3600
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/users/",
+      "handlerName": "create",
+      "paramTypes": [
+        { "kind": "body" },
+        { "kind": "header", "name": "X-Token" }
+      ],
+      "statusCode": 201,
+      "classCors": { "origins": ["http://localhost:5173"], "credentials": true, "maxAge": 3600 }
+    }
+  ]
+}</code></pre>
+
+      <p>Each entry includes <code>method</code>, <code>path</code>, <code>handlerName</code>, <code>paramTypes</code> (with each parameter's <code>kind</code>/<code>name</code>/<code>defaultValue</code>), optional <code>statusCode</code> (from <code>@ResponseStatus</code>), and CORS config (<code>cors</code> for method-level, <code>classCors</code> for class-level). Disable with <code>app.exposeRoutes(null)</code> or change the path with <code>app.exposeRoutes('/api/__routes')</code>.</p>
+
+      <h2 id="cluster">Cluster mode</h2>
+      <p>For production throughput, <code>app.cluster({ port, workers: 'auto' })</code> forks N workers that share the listening socket. On Linux with SO_REUSEPORT, this scales linearly with the number of CPU cores.</p>
+
+      <pre><code>import { AppBuilder, bootstrap } from 'annotify';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const app = new AppBuilder();
+app.useLogger({ enabled: true });
+app.exposeRoutes();
+await app.scan(resolve(__dirname, 'controllers'));
+
+// One line — spawns N workers (one per core by default).
+await bootstrap(app, { port: 3000, workers: 'auto' });</code></pre>
+
+      <p>Or use the lower-level <code>app.cluster({ port, workers })</code> directly. Behavior:</p>
+      <ul>
+        <li><strong>Primary process</strong> forks workers and waits for them to listen. SIGINT/SIGTERM on the primary are forwarded to all workers; dying workers are auto-restarted.</li>
+        <li><strong>Worker processes</strong> re-enter <code>app.cluster()</code> and call <code>app.listen()</code> instead of forking — they don't fork recursively.</li>
+        <li><strong>Single-process mode</strong>: <code>app.listen(port)</code> is unchanged and still works the same way as before.</li>
+      </ul>
+
+      <div class="callout">
+        <p><strong>Performance notes.</strong> On Linux with SO_REUSEPORT, expect roughly linear scaling with worker count — 4 cores ≈ 4× the per-process throughput. On Windows, cluster is less efficient because the OS doesn't share listening sockets the same way; use single-process or move to Linux for production. The framework's request hot-path is fast-pathed when the logger is off, and string/Buffer return values bypass <code>JSON.stringify</code>.</p>
+      </div>
+
+      <div class="footer">
+        annotify · MIT · by <a href="https://www.sanjaysokal.com/">Sanjay Sokal</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

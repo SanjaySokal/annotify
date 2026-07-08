@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quick start — annotify</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h1>annotify</h1>
+        <p>v0.4.0 · pure Node + TS</p>
+        <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Overview</div>
+          <a href="index.html">Introduction</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html" class="active">Quick start</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="decorators.html">Decorators</a>
+          <a href="core.html">Core framework</a>
+          <a href="errors.html">Errors &amp; status codes</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Examples</div>
+          <a href="examples.html">Sample controllers</a>
+          <a href="testing.html">Smoke tests</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Internals</div>
+          <a href="configuration.html">Configuration</a>
+          <a href="source.html">Source walkthrough</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>Quick start</h1>
+      <p class="lede">Five minutes from <code>npm install</code> to a working HTTP API.</p>
+
+      <h2>1. Set up the project</h2>
+      <pre><code>mkdir my-app &amp;&amp; cd my-app
+npm init -y
+npm install annotify
+npm install --save-dev typescript @types/node</code></pre>
+
+      <p>Add the scripts and <code>"type": "module"</code> to <code>package.json</code>:</p>
+      <pre><code>{
+  "name": "my-app",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js"
+  }
+}</code></pre>
+
+      <h2>2. Add <code>tsconfig.json</code></h2>
+      <pre><code>{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*"]
+}</code></pre>
+
+      <h2>3. Write your first controller</h2>
+      <p>Create <code>src/controllers/HelloController.ts</code>:</p>
+      <pre><code>import {
+  RestController, GetMapping, PathVariable, HttpError,
+} from 'annotify';
+
+<span class="hl-dec">@RestController</span>('/hello')
+export class HelloController {
+
+  <span class="hl-dec">@GetMapping</span>('/')
+  root() {
+    return { message: 'Hello, world!' };
+  }
+
+  <span class="hl-dec">@GetMapping</span>('/:name')
+  greet(<span class="hl-dec">@PathVariable</span>('name') name: string) {
+    return { message: <span class="hl-str">`Hello, ${name}!`</span> };
+  }
+}</code></pre>
+
+      <h2>4. Wire up <code>main.ts</code></h2>
+      <pre><code>import { AppBuilder } from 'annotify';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const app = new AppBuilder();
+app.useLogger({ enabled: true });                    // optional: access log
+app.exposeRoutes();                                // optional: GET /__annotify/routes
+
+await app.scan(resolve(__dirname, 'controllers'));
+await app.listen(3000);</code></pre>
+
+      <h2>5. Build and run</h2>
+      <pre><code>npm run build
+npm start</code></pre>
+
+      <p>Expected output:</p>
+      <pre><code>[scanner] scanning ...\dist\controllers
+[server] listening on http://127.0.0.1:3000
+[router] 1 controller(s), 2 route(s) registered
+[introspect] GET /__annotify/routes
+[logger] enabled</code></pre>
+
+      <h2>6. Hit it</h2>
+      <pre><code>curl http://localhost:3000/hello/
+{"message":"Hello, world!"}
+
+curl http://localhost:3000/hello/world
+{"message":"Hello, world!"}</code></pre>
+
+      <h2>What just happened</h2>
+      <ol>
+        <li>TypeScript compiled <code>src/controllers/HelloController.ts</code> into <code>dist/controllers/HelloController.js</code>. The decorators ran at class definition time, populating a <code>WeakMap</code> with per-method parameter metadata and attaching a route table to the class itself under a symbol key.</li>
+        <li><code>AppBuilder.scan()</code> walked <code>dist/controllers</code>, dynamically imported each <code>.js</code> file, and registered any export whose class had the route metadata attached.</li>
+        <li><code>AppBuilder.listen(3000)</code> instantiated each controller, bound the handler methods, built a trie router, and started a native <code>http.Server</code>.</li>
+        <li>Each request walks the trie, the resolver pulls values from the matched route's path variables and the parsed query string, and the handler runs.</li>
+      </ol>
+
+      <h2>Add another verb</h2>
+      <p>Expand <code>HelloController</code>:</p>
+      <pre><code>import {
+  RestController, GetMapping, PostMapping,
+  PathVariable, RequestBody, HttpError,
+} from 'annotify';
+
+<span class="hl-dec">@RestController</span>('/hello')
+export class HelloController {
+  <span class="hl-com">// ... existing methods ...</span>
+
+  <span class="hl-dec">@PostMapping</span>('/echo')
+  echo(<span class="hl-dec">@RequestBody</span>() body: unknown) {
+    return { received: body };
+  }
+}</code></pre>
+
+      <pre><code>curl -X POST http://localhost:3000/hello/echo \
+     -H "Content-Type: application/json" \
+     -d '{"x":1,"y":"two"}'
+{"received":{"x":1,"y":"two"}}</code></pre>
+
+      <h2>Dev workflow: nodemon + ts-node</h2>
+      <p>If you want hot-reload without a separate build step, install <code>ts-node</code> as a dev-dep and use a <code>nodemon.json</code> that loads ts-node's ESM loader:</p>
+
+      <pre><code>{
+  "watch": ["src"],
+  "ext": "ts,json",
+  "exec": "node --loader ts-node/esm src/main.ts"
+}</code></pre>
+
+      <p>Then run:</p>
+      <pre><code>npm install --save-dev ts-node
+npx nodemon</code></pre>
+
+      <p>The <code>--loader ts-node/esm</code> flag is required so annotify's scanner can dynamically <code>import()</code> your <code>.ts</code> controllers. Without it, the scanner will silently register zero controllers.</p>
+
+      <p>If you'd rather use <code>tsx</code> (faster than ts-node), use this <code>nodemon.json</code> instead:</p>
+
+      <pre><code>{
+  "exec": "node --import tsx/esm src/main.ts"
+}</code></pre>
+
+      <h2>Next steps</h2>
+      <ul>
+        <li>Read <a href="decorators.html">Decorators</a> for every available annotation.</li>
+        <li>Walk through <a href="examples.html">Sample controllers</a> for fuller idioms.</li>
+        <li>Dive into <a href="core.html">Core framework</a> to understand the request pipeline.</li>
+        <li>Configure error responses via <a href="errors.html">Errors &amp; status codes</a>.</li>
+      </ul>
+
+      <div class="footer">
+        annotify · MIT · by <a href="https://www.sanjaysokal.com/">Sanjay Sokal</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

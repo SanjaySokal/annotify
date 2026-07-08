@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>annotify — Spring-style routing for Node.js</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h1>annotify</h1>
+        <p>v0.4.0 · pure Node + TS</p>
+        <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Overview</div>
+          <a href="index.html" class="active">Introduction</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html">Quick start</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="decorators.html">Decorators</a>
+          <a href="core.html">Core framework</a>
+          <a href="errors.html">Errors &amp; status codes</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Examples</div>
+          <a href="examples.html">Sample controllers</a>
+          <a href="testing.html">Smoke tests</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Internals</div>
+          <a href="configuration.html">Configuration</a>
+          <a href="source.html">Source walkthrough</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>annotify</h1>
+      <p class="lede">Annotation-based HTTP routing for <strong>Node.js + TypeScript</strong> — Spring Boot feel, zero runtime dependencies.</p>
+
+      <p>annotify brings <code>@RestController</code>, <code>@GetMapping</code>, <code>@PathVariable</code>, <code>@RequestBody</code>, and the rest of the Spring routing vocabulary to Node's native <code>http</code> module. No Express, no Koa, no router libraries — just decorators and a small framework.</p>
+
+      <div class="cards">
+        <div class="card">
+          <h3>Annotation-driven</h3>
+          <p>Decorate classes and methods. The router reads metadata at registration time.</p>
+        </div>
+        <div class="card">
+          <h3>Zero deps</h3>
+          <p>No Express, no Koa, no router libs. Only <code>typescript</code> as a dev-dependency.</p>
+        </div>
+        <div class="card">
+          <h3>Auto-discovery</h3>
+          <p>Point at a directory; controllers are imported and bound automatically.</p>
+        </div>
+        <div class="card">
+          <h3>Trie router</h3>
+          <p>Fast matching with literal-segment priority and path-variable fallback.</p>
+        </div>
+        <div class="card">
+          <h3>Typed errors</h3>
+          <p>Throw <code>HttpError</code> from handlers — proper status codes and JSON bodies.</p>
+        </div>
+        <div class="card">
+          <h3>Spring parity</h3>
+          <p>Mapping, PathVariable, RequestParam, RequestBody, RequestHeader — the essentials.</p>
+        </div>
+      </div>
+
+      <h2>Quick example</h2>
+      <pre><code>import {
+  RestController, GetMapping, PostMapping,
+  PathVariable, RequestBody, RequestHeader, HttpError,
+} from 'annotify';
+
+<span class="hl-dec">@RestController</span>('/users')
+export class UserController {
+
+  <span class="hl-dec">@GetMapping</span>('/:id')
+  get(<span class="hl-dec">@PathVariable</span>('id') id: string) {
+    return { id, name: 'Ada' };
+  }
+
+  <span class="hl-dec">@PostMapping</span>('/')
+  create(
+    <span class="hl-dec">@RequestBody</span>() body: { name: string },
+    <span class="hl-dec">@RequestHeader</span>('X-Token') token: string,
+  ) {
+    if (!token) throw new HttpError(401, 'X-Token required');
+    return { created: body, token };
+  }
+}</code></pre>
+
+      <p>Bind it in <code>main.ts</code>:</p>
+      <pre><code>import { AppBuilder } from 'annotify';
+const app = new AppBuilder();
+await app.scan('./dist/controllers');
+await app.listen(3000);</code></pre>
+
+      <h2>What's new in 0.3.0</h2>
+      <ul>
+        <li><strong>Request logger</strong> — <code>app.useLogger({ enabled: true })</code> emits one access-log line per request (method, path, status, duration). See <a href="core.html#logger">Request logger</a>.</li>
+        <li><strong>Routes introspection</strong> — <code>app.exposeRoutes()</code> exposes <code>GET /__annotify/routes</code> returning the full route table as JSON. See <a href="core.html#introspection">Routes introspection</a>.</li>
+        <li><strong>Smoke test count: 15</strong> — two new tests cover logger output and the introspection endpoint.</li>
+      </ul>
+
+      <h2>What's in this documentation</h2>
+      <ul>
+        <li><a href="install.html"><strong>Install</strong></a> — prerequisites, install command, project structure.</li>
+        <li><a href="quickstart.html"><strong>Quick start</strong></a> — first controller in five minutes.</li>
+        <li><a href="decorators.html"><strong>Decorators</strong></a> — every annotation, with signatures and examples.</li>
+        <li><a href="core.html"><strong>Core framework</strong></a> — Router, Scanner, AppBuilder, Resolver, Server, <a href="core.html#logger">Logger</a>, <a href="core.html#introspection">Introspection</a>.</li>
+        <li><a href="errors.html"><strong>Errors &amp; status codes</strong></a> — HttpError and the framework's response model.</li>
+        <li><a href="examples.html"><strong>Sample controllers</strong></a> — annotated walkthroughs of <code>UserController</code> and <code>ProductController</code>.</li>
+        <li><a href="testing.html"><strong>Smoke tests</strong></a> — the 15 end-to-end checks that ship with the project.</li>
+        <li><a href="configuration.html"><strong>Configuration</strong></a> — <code>tsconfig.json</code> and <code>package.json</code> reference.</li>
+        <li><a href="source.html"><strong>Source walkthrough</strong></a> — annotated reference of every file in <code>src/</code>.</li>
+      </ul>
+
+      <h2>Why legacy TypeScript decorators</h2>
+      <p>annotify uses <code>experimentalDecorators: true</code> rather than TC39 Stage 3. The reason is pragmatic: TC39 Stage 3 decorators do <strong>not include parameter decorators</strong> in the current proposal, and TypeScript 5 strips them from the compiled output when <code>experimentalDecorators</code> is off. Without parameter decorators there is no way to express <code>@PathVariable</code>, <code>@RequestBody</code>, etc. — they would simply not exist at runtime.</p>
+
+      <p>When TC39 ships parameter decorators and TypeScript implements them, annotify can migrate to Stage 3 without changing its public API.</p>
+
+      <div class="footer">
+        annotify · MIT ·
+        <a href="https://www.npmjs.com/package/annotify">npm</a> ·
+        <a href="https://github.com/SanjaySokal/annotify">GitHub</a> ·
+        by <a href="https://www.sanjaysokal.com/">Sanjay Sokal</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

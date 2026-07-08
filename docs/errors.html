@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Errors &amp; status codes — annotify</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h1>annotify</h1>
+        <p>v0.4.0 · pure Node + TS</p>
+        <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Overview</div>
+          <a href="index.html">Introduction</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html">Quick start</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="decorators.html">Decorators</a>
+          <a href="core.html">Core framework</a>
+          <a href="errors.html" class="active">Errors &amp; status codes</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Examples</div>
+          <a href="examples.html">Sample controllers</a>
+          <a href="testing.html">Smoke tests</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Internals</div>
+          <a href="configuration.html">Configuration</a>
+          <a href="source.html">Source walkthrough</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>Errors &amp; status codes</h1>
+      <p class="lede">How annotify turns handler outcomes into HTTP responses, and how to surface typed errors from your code.</p>
+
+      <h2 id="httperror">HttpError</h2>
+      <p>The <code>HttpError</code> class is the public error type. Throw it from a handler to set the response status code and a JSON envelope.</p>
+
+      <pre><code>class HttpError extends Error {
+  status: number;
+  details?: unknown;
+  constructor(status: number, message: string, details?: unknown);
+}</code></pre>
+
+      <p>The server serializes it as:</p>
+      <pre><code>{
+  "error": "&lt;status name&gt;",          // e.g. "Not Found"
+  "message": "&lt;your message&gt;",
+  "details": &lt;optional payload&gt;
+}</code></pre>
+
+      <p>Example:</p>
+      <pre><code>import { HttpError } from 'annotify';
+
+@GetMapping('/:id')
+get(@PathVariable('id') id: string) {
+  const user = users.find(u =&gt; u.id === Number(id));
+  if (!user) throw new HttpError(404, `User ${id} not found`);
+  return user;
+}</code></pre>
+
+      <pre><code>$ curl http://localhost:3000/users/999
+{
+  "error": "Not Found",
+  "message": "User 999 not found"
+}</code></pre>
+
+      <h2 id="status-codes">All status codes annotify produces</h2>
+
+      <table>
+        <thead>
+          <tr><th>Situation</th><th>Status</th><th>Body</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Handler returns a value</td><td><code>200</code></td><td><code>JSON.stringify(value)</code></td><td>Default success path.</td></tr>
+          <tr><td>Handler returns <code>undefined</code></td><td><code>204</code></td><td>empty</td><td>Use when you've already serialized manually or there's nothing to say.</td></tr>
+          <tr><td>Handler throws <code>HttpError(s, msg)</code></td><td><code>s</code></td><td><code>{ error, message, details? }</code></td><td>Use this for everything user-facing.</td></tr>
+          <tr><td>Handler throws anything else</td><td><code>500</code></td><td><code>{ error: "Internal Server Error", message }</code></td><td>Catch and rethrow as <code>HttpError</code> if you want a different code.</td></tr>
+          <tr><td>Path doesn't exist</td><td><code>404</code></td><td><code>{ error: "Not Found", message }</code></td><td>Returned by the server before handler dispatch.</td></tr>
+          <tr><td>Path exists, wrong method</td><td><code>405</code> + <code>Allow: GET, PUT, …</code></td><td><code>{ error: "Method Not Allowed", message }</code></td><td>The <code>Allow</code> header lists valid methods.</td></tr>
+          <tr><td>Body &gt; 1 MB</td><td><code>413</code></td><td><code>{ error: "Payload Too Large", message }</code></td><td>Body cap is hard-coded at 1 MB.</td></tr>
+          <tr><td>Body content-type ≠ JSON</td><td><code>415</code></td><td><code>{ error: "Unsupported Media Type", message }</code></td><td>Returned when <code>@RequestBody</code> is used but the request isn't <code>application/json</code>.</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="custom-errors">Custom error subclasses</h2>
+      <p>Extend <code>HttpError</code> for application-specific error types:</p>
+
+      <pre><code>import { HttpError } from 'annotify';
+
+export class NotFoundError extends HttpError {
+  constructor(what: string) {
+    super(404, `${what} not found`);
+  }
+}
+
+export class AuthError extends HttpError {
+  constructor(msg = 'Unauthorized') {
+    super(401, msg);
+  }
+}</code></pre>
+
+      <pre><code>@GetMapping('/:id')
+get(@PathVariable('id') id: string) {
+  const user = users.find(u =&gt; u.id === Number(id));
+  if (!user) throw new NotFoundError(`User ${id}`);
+  return user;
+}</code></pre>
+
+      <h2 id="handler-wrote">Handler already wrote to <code>res</code>?</h2>
+      <p>If your handler writes to <code>res</code> directly (for streaming, SSE, file downloads), annotify will <strong>not</strong> write a second response. Return <code>undefined</code> or throw nothing — the framework checks <code>res.writableEnded</code> after the handler returns.</p>
+
+      <pre><code>@GetMapping('/download')
+download(req: IncomingMessage, res: ServerResponse) {
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', 'attachment; filename="data.bin"');
+  res.end(Buffer.from('…'));
+  <span class="hl-com">// returning undefined → annotify sees writableEnded, skips its 204 path</span>
+}</code></pre>
+
+      <h2 id="global-errors">Global error filtering</h2>
+      <p>There's no built-in <code>@ExceptionHandler</code> or <code>@ControllerAdvice</code> yet — wrap async handler logic in a <code>try/catch</code> inside the handler if you want to map domain errors to HTTP status codes:</p>
+
+      <pre><code>@GetMapping('/:id')
+async get(@PathVariable('id') id: string) {
+  try {
+    return await this.users.findById(id);
+  } catch (err) {
+    if (err.code === 'TIMEOUT') throw new HttpError(504, 'Upstream timeout');
+    throw new HttpError(500, 'Internal error');
+  }
+}</code></pre>
+
+      <div class="callout">
+        <p><strong>Future work.</strong> An <code>@ExceptionHandler</code> decorator is a natural next addition — it would let you declare a method as a catch-all for one or more exception types and let the framework route exceptions through it.</p>
+      </div>
+
+      <div class="footer">
+        annotify · MIT · by <a href="https://www.sanjaysokal.com/">Sanjay Sokal</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

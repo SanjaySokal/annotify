@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smoke tests — annotify</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h1>annotify</h1>
+        <p>v0.4.0 · pure Node + TS</p>
+        <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Overview</div>
+          <a href="index.html">Introduction</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html">Quick start</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="decorators.html">Decorators</a>
+          <a href="core.html">Core framework</a>
+          <a href="errors.html">Errors &amp; status codes</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Examples</div>
+          <a href="examples.html">Sample controllers</a>
+          <a href="testing.html" class="active">Smoke tests</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Internals</div>
+          <a href="configuration.html">Configuration</a>
+          <a href="source.html">Source walkthrough</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>Smoke tests</h1>
+      <p class="lede">End-to-end checks for every feature annotify exposes. The driver is <code>smoke-simple.ps1</code>; the assertions are status codes + body substrings.</p>
+
+      <h2>How to run</h2>
+      <p>Make sure the server is up (<code>npm start</code>) in one terminal, then in another:</p>
+
+      <pre><code>powershell -ExecutionPolicy Bypass -File smoke-simple.ps1</code></pre>
+
+      <p>All 15 checks should report <code>[PASS]</code> and the script ends with:</p>
+      <pre><code>=== All 15 smoke tests passed ===</code></pre>
+
+      <h2>The 15 checks</h2>
+
+      <div class="test pass">
+        <span class="method get">GET</span>
+        <span class="url">/users/?limit=1</span>
+        <span class="status">200</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: <code>@RequestParam</code> with default value, response shape from handler return value.</p>
+
+      <div class="test pass">
+        <span class="method get">GET</span>
+        <span class="url">/users/1</span>
+        <span class="status">200</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: <code>@PathVariable</code> binding, single-resource fetch.</p>
+
+      <div class="test pass">
+        <span class="method post">POST</span>
+        <span class="url">/users/</span>
+        <span class="status">200</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: <code>@RequestBody</code> + <code>@RequestHeader</code> working together on the same handler.</p>
+
+      <div class="test pass">
+        <span class="method put">PUT</span>
+        <span class="url">/users/3</span>
+        <span class="status">200</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: <code>@PathVariable</code> + <code>@RequestBody</code> on the same handler.</p>
+
+      <div class="test pass">
+        <span class="method delete">DEL</span>
+        <span class="url">/users/3</span>
+        <span class="status">200</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: <code>@DeleteMapping</code>, <code>@PathVariable</code>, return value.</p>
+
+      <div class="test pass">
+        <span class="method get">GET</span>
+        <span class="url">/nope</span>
+        <span class="status">404</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: 404 Not Found response, JSON error envelope <code>{ error: "Not Found", message: ... }</code>.</p>
+
+      <div class="test pass">
+        <span class="method post">POST</span>
+        <span class="url">/users/1</span>
+        <span class="status">405</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: 405 Method Not Allowed with <code>Allow: GET, PUT, DELETE</code> header.</p>
+
+      <div class="test pass">
+        <span class="method get">GET</span>
+        <span class="url">/api/v1/products</span>
+        <span class="status">200</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: class-level path prefix. Returns the product array.</p>
+
+      <div class="test pass">
+        <span class="method get">GET</span>
+        <span class="url">/api/v1/products/2/reviews/99</span>
+        <span class="status">200</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: multiple <code>@PathVariable</code> on the same route, deep nesting, literal-and-variable segment mix.</p>
+
+      <div class="test pass">
+        <span class="method post">POST</span>
+        <span class="url">/users/</span>
+        <span class="status">400</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: <code>HttpError</code> — POST without <code>X-Token</code> header. Handler throws <code>HttpError(400, 'X-Token header is required')</code>, which the server serializes into a 400 JSON response.</p>
+
+      <h3>CORS (tests 11–13)</h3>
+
+      <div class="test pass">
+        <span class="method get">GET</span>
+        <span class="url">/users/ (OPTIONS preflight from allowed origin)</span>
+        <span class="status">204</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: auto-reply to <code>OPTIONS</code> preflight, with <code>Access-Control-Allow-Origin</code>, <code>Access-Control-Allow-Methods</code>, <code>Access-Control-Allow-Credentials: true</code>, and <code>Access-Control-Max-Age: 3600</code> set from the class-level <code>@CrossOrigin</code>.</p>
+
+      <div class="test pass">
+        <span class="method get">GET</span>
+        <span class="url">/users/ (OPTIONS preflight from disallowed origin)</span>
+        <span class="status">204</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: a preflight from a non-allowlisted origin still returns 204 but no <code>Access-Control-Allow-Origin</code> header — the browser will block the request.</p>
+
+      <div class="test pass">
+        <span class="method get">GET</span>
+        <span class="url">/users/1 (with Origin header)</span>
+        <span class="status">200</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: CORS headers (including <code>Access-Control-Allow-Origin</code> echoing the request origin) on a normal successful response.</p>
+
+      <h3>Introspection &amp; logging (tests 14–15)</h3>
+
+      <div class="test pass">
+        <span class="method get">GET</span>
+        <span class="url">/__annotify/routes</span>
+        <span class="status">200</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: the routes introspection endpoint (<code>app.exposeRoutes()</code>) returns a JSON snapshot of every registered route, including <code>handlerName</code>, <code>paramTypes</code>, <code>statusCode</code> (from <code>@ResponseStatus</code>), and per-method + class-level CORS config.</p>
+
+      <div class="test pass">
+        <span class="method get">GET</span>
+        <span class="url">/__annotify/routes (param metadata + CORS)</span>
+        <span class="status">200</span>
+        <span class="badge pass">PASS</span>
+      </div>
+      <p style="margin-top:0">Demonstrates: the same response contains per-parameter metadata (<code>kind</code>, <code>name</code>, <code>defaultValue</code>) and the configured <code>classCors</code> object. The request logger also writes one access-log line per request — see the server stdout.</p>
+
+      <h2>How the script works</h2>
+      <p>The script bypasses PowerShell's <code>Invoke-WebRequest</code> (which mishandles 4xx responses on Windows) and uses <code>System.Net.HttpWebRequest</code> directly, catching <code>WebException</code> to read the response body from the exception object.</p>
+
+      <pre><code>$req = [System.Net.HttpWebRequest]::Create($Uri)
+$req.Method = $Method
+try {
+  $resp = $req.GetResponse()
+  <span class="hl-com"># 2xx path</span>
+} catch [System.Net.WebException] {
+  $ex = $_.Exception.Response
+  <span class="hl-com"># 4xx/5xx path — body is on the exception</span>
+}</code></pre>
+
+      <div class="callout">
+        <p>Each test asserts on the status code AND a substring in the response body. We pick a substring to assert (e.g. <code>"id":1</code>) rather than the full body so tests stay robust against minor formatting changes.</p>
+      </div>
+
+      <h2>Expected output</h2>
+      <pre><code>=== Smoke tests against http://127.0.0.1:3000 ===
+[PASS] 1. GET /users/?limit=1  (200)
+[PASS] 2. GET /users/1  (200)
+[PASS] 3. POST /users/ with token  (200)
+[PASS] 4. PUT /users/3  (200)
+[PASS] 5. DELETE /users/3  (200)
+[PASS] 6. GET /nope =&gt; 404  (404)
+[PASS] 7. POST /users/1 =&gt; 405  (405)
+[PASS] 8. GET /api/v1/products  (200)
+[PASS] 9. GET /api/v1/products/2/reviews/99  (200)
+[PASS] 10. POST /users/ no token =&gt; 400  (400)
+[PASS] 11. CORS preflight OPTIONS /users/ =&gt; 204  (204)
+[PASS] 12. CORS preflight from disallowed origin =&gt; no Allow-Origin  (204)
+[PASS] 13. CORS headers on regular response  (200)
+[PASS] 14. Routes introspection endpoint  (200)
+[PASS] 15. Routes JSON includes param metadata + CORS  (200)
+
+=== All 15 smoke tests passed ===</code></pre>
+
+      <div class="footer">
+        annotify · MIT · by <a href="https://www.sanjaysokal.com/">Sanjay Sokal</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

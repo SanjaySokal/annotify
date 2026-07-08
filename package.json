@@ -1,0 +1,78 @@
+{
+  "name": "annotify",
+  "version": "0.4.0",
+  "description": "Annotation-based HTTP routing for Node.js + TypeScript, inspired by Spring Boot. Zero runtime dependencies.",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./decorators": {
+      "types": "./dist/src/decorators/index.d.ts",
+      "import": "./dist/src/decorators/index.js"
+    },
+    "./core": {
+      "types": "./dist/src/core/app.d.ts",
+      "import": "./dist/src/core/app.js"
+    }
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/main.js",
+    "dev": "tsc --watch",
+    "test": "echo 'No unit tests yet — run npm start + smoke-simple.ps1 for end-to-end checks.'",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "node",
+    "nodejs",
+    "http",
+    "router",
+    "routing",
+    "spring",
+    "spring-boot",
+    "annotations",
+    "decorators",
+    "typescript",
+    "controller",
+    "rest",
+    "rest-api"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "author": {
+    "name": "Sanjay Sokal",
+    "url": "https://www.sanjaysokal.com/"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SanjaySokal/annotify.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SanjaySokal/annotify/issues"
+  },
+  "homepage": "https://github.com/SanjaySokal/annotify#readme",
+  "peerDependencies": {
+    "ts-node": "^10.9.0"
+  },
+  "peerDependenciesMeta": {
+    "ts-node": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

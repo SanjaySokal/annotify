@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Install — annotify</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h1>annotify</h1>
+        <p>v0.4.0 · pure Node + TS</p>
+        <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Overview</div>
+          <a href="index.html">Introduction</a>
+          <a href="install.html" class="active">Install</a>
+          <a href="quickstart.html">Quick start</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="decorators.html">Decorators</a>
+          <a href="core.html">Core framework</a>
+          <a href="errors.html">Errors &amp; status codes</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Examples</div>
+          <a href="examples.html">Sample controllers</a>
+          <a href="testing.html">Smoke tests</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Internals</div>
+          <a href="configuration.html">Configuration</a>
+          <a href="source.html">Source walkthrough</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>Install</h1>
+      <p class="lede">Three commands and you're up. annotify is a single npm dependency with zero transitive deps.</p>
+
+      <h2>Requirements</h2>
+      <ul>
+        <li>Node.js <strong>18</strong> or newer (developed and tested on 22 / 26)</li>
+        <li>npm, pnpm, or yarn — examples below use npm</li>
+        <li>TypeScript <strong>5.0+</strong> as a dev-dependency</li>
+      </ul>
+
+      <h2>Install annotify</h2>
+      <pre><code>npm install annotify</code></pre>
+
+      <p>That's the runtime dependency. annotify ships ES modules with TypeScript declarations.</p>
+
+      <h2>Install dev dependencies</h2>
+      <pre><code>npm install --save-dev typescript @types/node</code></pre>
+
+      <p>TypeScript compiles your controllers; <code>@types/node</code> gives you types for <code>http</code>, <code>fs</code>, etc.</p>
+
+      <div class="callout">
+        <p><strong>Zero runtime deps.</strong> annotify pulls in <em>nothing</em> — no Express, no Koa, no router libs. The only transitive cost in your <code>node_modules</code> is the package itself plus what your code itself imports.</p>
+      </div>
+
+      <h2>tsconfig.json</h2>
+      <p>annotify requires legacy TypeScript decorators. Start with this:</p>
+      <pre><code>{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": "./",
+    "outDir": "./dist",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": false,
+    "useDefineForClassFields": false,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*"]
+}</code></pre>
+
+      <p>The pivotal options:</p>
+      <table>
+        <thead><tr><th>Option</th><th>Value</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><code>experimentalDecorators</code></td><td><code>true</code></td><td>Without this, parameter decorators (<code>@PathVariable</code>, etc.) are stripped from the compiled output.</td></tr>
+          <tr><td><code>emitDecoratorMetadata</code></td><td><code>false</code></td><td>annotify has its own side-channel — no <code>reflect-metadata</code> needed.</td></tr>
+          <tr><td><code>useDefineForClassFields</code></td><td><code>false</code></td><td>Ensures decorator-applied class fields behave correctly.</td></tr>
+          <tr><td><code>module</code> / <code>moduleResolution</code></td><td><code>NodeNext</code></td><td>Matches annotify's <code>"type": "module"</code>.</td></tr>
+          <tr><td><code>declaration</code></td><td><code>true</code></td><td>Emits <code>.d.ts</code> files for your own consumers.</td></tr>
+        </tbody>
+      </table>
+
+      <p>See <a href="configuration.html">Configuration</a> for full details on each option.</p>
+
+      <h2>package.json scripts</h2>
+      <pre><code>{
+  "name": "my-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "annotify": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}</code></pre>
+
+      <h2>Verify the install</h2>
+      <p>Once installed, this should run without errors:</p>
+      <pre><code>import { AppBuilder, RestController, RequestLogger } from 'annotify';
+console.log(typeof RestController);  // 'function'
+console.log(typeof AppBuilder);      // 'function'
+console.log(typeof RequestLogger);    // 'function'</code></pre>
+
+      <p>Then head to <a href="quickstart.html">Quick start</a> to write your first controller. Once it's running, <a href="core.html#logger">turn on the logger</a> with <code>app.useLogger({ enabled: true })</code> and <a href="core.html#introspection">expose your routes</a> with <code>app.exposeRoutes()</code>.</p>
+
+      <div class="footer">
+        annotify · MIT · by <a href="https://www.sanjaysokal.com/">Sanjay Sokal</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
