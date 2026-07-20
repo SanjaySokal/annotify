@@ -3,7 +3,7 @@ import {
   GetMapping,
   PathVariable,
   RequestParam,
-} from '../src/index.js';
+} from 'annotify';
 
 interface Product {
   id: string;

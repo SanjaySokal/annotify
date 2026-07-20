@@ -2,7 +2,7 @@
 
 > Annotation-based HTTP routing for Node.js + TypeScript — Spring Boot feel, zero runtime dependencies.
 
-**Latest: v0.3.0** — adds request logger, routes introspection endpoint, `@ResponseStatus`, and `@CrossOrigin`. See the [What's new](#whats-new-in-v030) section below.
+**Latest: v0.6.0** — adds Express-style middleware, per-route `@Use`, static files, and a built-in EJS-style template engine. See the [What's new in v0.6.0](#whats-new-in-v060) section below.
 
 Annotify gives you `@RestController`, `@GetMapping`, `@PathVariable`, `@RequestBody`, `@RequestHeader`, and friends on top of Node's native `http` module. No Express, no Koa, no router libraries — just decorators and a small framework.
 
@@ -14,9 +14,14 @@ Annotify gives you `@RestController`, `@GetMapping`, `@PathVariable`, `@RequestB
 
 ## Table of contents
 
+- [What's new in v0.6.0](#whats-new-in-v060)
+- [What's new in v0.5.2](#whats-new-in-v052)
+- [What's new in v0.5.0](#whats-new-in-v050)
 - [What's new in v0.3.0](#whats-new-in-v030)
 - [Install](#install)
 - [Quick start](#quick-start)
+- [Middleware](#middleware)
+- [Templates](#templates)
 - [API reference](#api-reference)
   - [Class decorators](#class-decorators)
   - [Method decorators](#method-decorators)
@@ -34,6 +39,102 @@ Annotify gives you `@RestController`, `@GetMapping`, `@PathVariable`, `@RequestB
 - [License](#license)
 
 ---
+
+## What's new in v0.6.0
+
+Adds the missing cross-cutting layer — middleware, static files, and HTML rendering — without dropping any of the v0.5.x surface. No breaking API changes.
+
+- **`app.use((req, res, next) => …)`** — Express-style middleware. Single global chain runs pre-routing; prefix-mounted middleware (`app.use('/static', …)`) only fires for matching paths and rewrites `req.url` so downstream sees the mount-relative path.
+- **`@Use(...mws)` and `@UseClass(...mws)`** — per-method and per-class middleware (Spring's `@ControllerAdvice` analog). Class-level middlewares run first.
+- **Built-in middleware** — `json`, `corsMw`, `requestLogger`, `staticFiles`, plus the response helpers `html()` and `redirect()`.
+- **`staticFiles(dir)`** — GET/HEAD-only file server with a tiny mime map, `ETag` + `Last-Modified`, byte-range support, path-traversal guard, and an index fallback.
+- **Built-in EJS-style template engine** with `<% %>`, `<%= %>`, `<%- %>`, `<%# %>`. `res.render(name, data)` from a handler. `app.set('views', dir)` + `app.set('view engine', 'html')` to configure.
+- **`app.engine(name, fn)`** — register your own template engine (Handlebars, Mustache, anything). Same `EngineFn` contract as the built-in EJS.
+- **AppBuilder settings bag** — `app.set(key, value)` and `app.get(key)`.
+- **Pre-routing middleware + post-routing fallthrough chain** — when no annotation route matches, the global chain runs again before falling back to `404 Not Found`.
+
+Example web demo: `examples/main-web.ts`. See [Middleware](#middleware) and [Templates](#templates) below.
+
+---
+
+## Middleware
+
+```ts
+import { AppBuilder, staticFiles, json, corsMw } from 'annotify';
+
+const app = new AppBuilder();
+
+app.use(corsMw({ origins: ['https://my.app'] }));
+app.use((req, _res, next) => { console.log(req.method, req.url); next(); });
+app.use('/static', staticFiles('./public'));      // prefix-mounted
+
+app.set('views', './views');
+app.set('view engine', 'html');
+app.register(PageController);
+await app.listen(3000);
+```
+
+Per-route middleware via `@Use`:
+
+```ts
+import { Controller, GetMapping, Use } from 'annotify';
+import type { MiddlewareFn } from 'annotify';
+
+const requireAuth: MiddlewareFn = (req, res, next) => {
+  if (!req.headers['x-token']) { res.writeHead(401); res.end(); return; }
+  next();
+};
+
+@Controller('/api')
+export class ApiController {
+  @GetMapping('/public') public() { return { ok: true }; }
+  @GetMapping('/private') @Use(requireAuth) private() { return { secret: 42 }; }
+}
+```
+
+See [`docs/middleware.html`](docs/middleware.html) for the full reference.
+
+## Templates
+
+```ts
+@GetMapping('/')
+index(_req, res) {
+  return res.render('home', { title: 'annotify', items: ['a','b'] });
+}
+```
+
+`examples/views/home.html`:
+
+```html
+<h1><%= title %></h1>
+<% if (items.length > 0) { %>
+  <ul>
+    <% for (let i = 0; i < items.length; i++) { %>
+      <li><%= items[i] %></li>
+    <% } %>
+  </ul>
+<% } %>
+```
+
+Custom engine: `app.engine('hbs', myHandlebarsAdapter)`.
+
+See [`docs/templates.html`](docs/templates.html) for the full reference.
+
+---
+
+## What's new in v0.5.2
+
+Bug-fix patch over v0.5.0. No breaking API changes.
+
+- **Malformed query strings return 200, not 500.** `?foo=%ZZ`, `?foo=%`, `?foo=%G1` used to crash the request with `Internal Server Error` because `decodeURIComponent` throws on bad percent-encoding. The query parser now treats malformed sequences as raw strings. `GET /users/?q=%ZZ` returns an empty `q` value (or whatever other params survived) instead of 500.
+- **Malformed JSON bodies return 400, not 500.** Previously, `POST /users/` with `Content-Type: application/json` and a body like `{not-json}` would crash with 500. The body parser now returns a clean 400 `{"error":"Bad Request","message":"Malformed JSON body: ..."}` and the handler is not invoked.
+- **`HEAD` responses no longer claim a body that isn't sent.** RFC 7231 §4.3.2 requires HEAD responses to have no message body. Annotify was including `Content-Length` for the JSON body but Node would strip the bytes — now the headers are correct.
+- **`@RequestHeader` accepts an optional default value.** `@RequestHeader('X-Admin', '')` now matches Spring's behavior — when the header is absent, the parameter receives the default instead of `undefined`. This means handlers can safely do `auth.startsWith(...)` without `?? ''` guards.
+- **Documentation updated** — both the public README and the bundled HTML docs site (`docs/`) were refreshed to reflect these changes.
+
+## What's new in v0.5.0
+
+**Original v0.5.0 release notes** — adds `AppBuilder.useInterceptor(fn)` for cross-cutting concerns (e.g. `annotify-redis` caching).
 
 ## What's new in v0.3.0
 
@@ -298,6 +399,7 @@ class AppBuilder {
   scan(dir: string): Promise<this>;          // auto-discover controllers in a directory
   register(ctor: Function): this;             // manual registration
   setDefaultIsRest(v: boolean): this;         // default JSON behavior (default: true)
+  useInterceptor(fn: (ctor: Function) => void): this; // wire cross-cutting concerns (caching, etc.)
   build(): Router;                            // instantiate + bind handlers
   listen(port: number, host?: string): Promise<http.Server>;
 }
@@ -317,6 +419,18 @@ process.on('SIGINT', () => server.close(() => process.exit(0)));
 `scan(dir)` walks the directory recursively, dynamically imports every `.js` / `.mjs` file, and registers any export whose class has `ROUTE_METADATA` set (i.e., is decorated with `@Controller` or `@RestController`).
 
 `listen(port, host?)` returns the underlying `http.Server`. If you don't pass a host, it defaults to `127.0.0.1`.
+
+#### `useInterceptor(fn)` (added in v0.5.0)
+
+Register a function that runs against every registered controller class BEFORE instantiation in `build()`. Lets external packages (caching, transactions, auth) mutate the controller prototype to wire in cross-cutting behavior. Multiple interceptors run in registration order.
+
+```ts
+app.useInterceptor((controllerClass) => {
+  // mutate controllerClass.prototype here
+});
+```
+
+The canonical example is [`annotify-redis`](https://www.npmjs.com/package/annotify-redis), which uses this hook to auto-wrap `@Cacheable`/`@CachePut`/`@CacheEvict` methods — so end users only need to call `enableCaching(app, cache)` once instead of `wrapController(...)` per class.
 
 #### `HttpError`
 

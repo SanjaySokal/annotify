@@ -11,7 +11,7 @@ import {
   ResponseStatus,
   CrossOrigin,
   HttpError,
-} from '../src/index.js';
+} from 'annotify';
 
 interface User {
   id: number;

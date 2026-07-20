@@ -73,6 +73,14 @@ export function sendPayloadTooLarge(
   );
 }
 
+export function sendBadRequest(
+  res: ServerResponse,
+  message: string,
+  extraHeaders?: Record<string, string>,
+): void {
+  sendJson(res, 400, { error: 'Bad Request', message }, extraHeaders);
+}
+
 export function sendInternalError(
   res: ServerResponse,
   err: unknown,

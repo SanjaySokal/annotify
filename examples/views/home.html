@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="hero">
+    <h1><%= title %></h1>
+    <p class="lede"><%= subtitle %></p>
+  </header>
+
+  <main>
+    <section>
+      <h2>Items</h2>
+      <% if (items && items.length > 0) { %>
+        <ul class="items">
+          <% for (let i = 0; i < items.length; i++) { %>
+            <li><%= items[i] %></li>
+          <% } %>
+        </ul>
+      <% } else { %>
+        <p class="empty">No items.</p>
+      <% } %>
+    </section>
+
+    <section>
+      <h2>Try it</h2>
+      <ul class="links">
+        <li><a href="/">/</a> — home</li>
+        <li><a href="/greet/Ada">/greet/Ada</a> — path variable render</li>
+        <li><a href="/raw">/raw</a> — html() helper</li>
+        <li><a href="/redirect">/redirect</a> — redirect() helper</li>
+        <li><a href="/protected">/protected</a> — per-route auth middleware</li>
+        <li><a href="/json">/json</a> — JSON response (unchanged)</li>
+        <li><a href="/__annotify/routes">/__annotify/routes</a> — introspection</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

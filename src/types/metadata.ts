@@ -1,4 +1,5 @@
 import type { HttpMethod } from './http.js';
+import type { MiddlewareFn } from './middleware.js';
 
 export type ParamKind =
   | 'param'
@@ -37,6 +38,13 @@ export interface RouteEntry {
   path: string;
   handlerName: string;
   paramTypes: ParamMeta[];
+  /**
+   * Original (unbound) handler arity, captured at registration. Used as a
+   * positional fallback by the resolver when `paramTypes` is empty —
+   * `Function.prototype.bind` resets `.length` to 0 on the bound handler,
+   * so we must remember the un-bound count separately.
+   */
+  handlerArity?: number;
   /** Set by Router.addController after instantiation. */
   _handler?: Function;
   /** @ResponseStatus target. Default 200 (or 204 if handler returns undefined). */
@@ -45,6 +53,12 @@ export interface RouteEntry {
   cors?: CorsConfig;
   /** Class-level CORS default, copied in at registration for fallback. */
   classCors?: CorsConfig;
+  /**
+   * Middlewares attached via `@Use(...)` on the method. Run between route
+   * match and `resolveArgs`. Class-level middlewares are prepended at request
+   * time, so the effective order is: [classMws..., ...methodMws].
+   */
+  middlewares?: MiddlewareFn[];
 }
 
 export interface RouteMetadata {
@@ -53,4 +67,10 @@ export interface RouteMetadata {
   routes: RouteEntry[];
   /** Class-level CORS default — applied to every route that does not specify its own. */
   cors?: CorsConfig;
+  /**
+   * Class-level middlewares attached via `@Use(...)` on the controller
+   * class. Applied to every method's per-route chain. (Spring's
+   * `@ControllerAdvice` analog.)
+   */
+  classMiddlewares?: MiddlewareFn[];
 }

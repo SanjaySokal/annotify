@@ -157,6 +157,7 @@ h2:hover .header-anchor, h3:hover .header-anchor { opacity: 1; }
 .hl-str { color: #86efac; }
 .hl-num { color: #fbbf24; }
 .hl-com { color: #6b7280; font-style: italic; }
+.hl-comment { color: #6b7280; font-style: italic; }
 .hl-fn  { color: #7dd3fc; }
 .hl-cls { color: #4fd1c5; }
 .hl-dec { color: #fb923c; font-weight: 600; }

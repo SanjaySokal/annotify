@@ -11,7 +11,7 @@
     <aside class="sidebar">
       <div class="sidebar-brand">
         <h1>annotify</h1>
-        <p>v0.4.0 · pure Node + TS</p>
+        <p>v0.6.0 · pure Node + TS</p>
         <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
       </div>
       <nav class="nav">
@@ -25,6 +25,8 @@
           <div class="nav-section-title">Reference</div>
           <a href="decorators.html">Decorators</a>
           <a href="core.html">Core framework</a>
+          <a href="middleware.html">Middleware</a>
+          <a href="templates.html">Templates</a>
           <a href="errors.html">Errors &amp; status codes</a>
         </div>
         <div class="nav-section">
@@ -103,6 +105,12 @@ const app = new AppBuilder();
 await app.scan('./dist/controllers');
 await app.listen(3000);</code></pre>
 
+      <h2>What's new in 0.5.0</h2>
+      <ul>
+        <li><strong><code>AppBuilder.useInterceptor(fn)</code></strong> — register a function that runs against every controller class before instantiation. The new cross-cutting hook that lets external packages (caching, transactions, auth) mutate the controller prototype to wire in behavior. See <a href="core.html#interceptors">Interceptors</a>.</li>
+        <li><strong>Param-resolution fix</strong> — <code>resolveArgs</code> now reads <code>entry.paramTypes.length</code> (the canonical metadata) instead of <code>fn.length</code> (which collapses to 0 under <code>Function.prototype.bind</code> and any wrapper that uses <code>...args</code>). This unblocks interceptor / decorator wrappers — previously, a wrapper around a handler would silently pass <code>undefined</code> for every parameter.</li>
+      </ul>
+
       <h2>What's new in 0.3.0</h2>
       <ul>
         <li><strong>Request logger</strong> — <code>app.useLogger({ enabled: true })</code> emits one access-log line per request (method, path, status, duration). See <a href="core.html#logger">Request logger</a>.</li>
@@ -115,10 +123,10 @@ await app.listen(3000);</code></pre>
         <li><a href="install.html"><strong>Install</strong></a> — prerequisites, install command, project structure.</li>
         <li><a href="quickstart.html"><strong>Quick start</strong></a> — first controller in five minutes.</li>
         <li><a href="decorators.html"><strong>Decorators</strong></a> — every annotation, with signatures and examples.</li>
-        <li><a href="core.html"><strong>Core framework</strong></a> — Router, Scanner, AppBuilder, Resolver, Server, <a href="core.html#logger">Logger</a>, <a href="core.html#introspection">Introspection</a>.</li>
+        <li><a href="core.html"><strong>Core framework</strong></a> — Router, Scanner, AppBuilder, Resolver, Server, <a href="core.html#logger">Logger</a>, <a href="core.html#introspection">Introspection</a>, <a href="core.html#interceptors">Interceptors</a> (new in v0.5.0).</li>
         <li><a href="errors.html"><strong>Errors &amp; status codes</strong></a> — HttpError and the framework's response model.</li>
         <li><a href="examples.html"><strong>Sample controllers</strong></a> — annotated walkthroughs of <code>UserController</code> and <code>ProductController</code>.</li>
-        <li><a href="testing.html"><strong>Smoke tests</strong></a> — the 15 end-to-end checks that ship with the project.</li>
+        <li><a href="testing.html"><strong>Smoke tests</strong></a> — the end-to-end checks that ship with the project.</li>
         <li><a href="configuration.html"><strong>Configuration</strong></a> — <code>tsconfig.json</code> and <code>package.json</code> reference.</li>
         <li><a href="source.html"><strong>Source walkthrough</strong></a> — annotated reference of every file in <code>src/</code>.</li>
       </ul>

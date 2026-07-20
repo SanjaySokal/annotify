@@ -16,6 +16,7 @@ function makeMapping(method: HttpMethod, path?: string): MethodDecorator {
     const methodKey = String(propertyKey);
     const statusCode = reg.statusCodes?.[methodKey];
     const cors = reg.corsByMethod?.[methodKey];
+    const methodMws = reg.middlewaresByMethod?.[methodKey];
     meta.routes.push({
       method,
       subPath,
@@ -24,6 +25,7 @@ function makeMapping(method: HttpMethod, path?: string): MethodDecorator {
       paramTypes,
       ...(statusCode !== undefined ? { statusCode } : {}),
       ...(cors ? { cors } : {}),
+      ...(methodMws ? { middlewares: [...methodMws] } : {}),
     });
   };
 }

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Middleware — annotify</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h1>annotify</h1>
+        <p>v0.6.0 · pure Node + TS</p>
+        <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Overview</div>
+          <a href="index.html">Introduction</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html">Quick start</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="decorators.html">Decorators</a>
+          <a href="core.html">Core framework</a>
+          <a href="middleware.html" class="active">Middleware</a>
+          <a href="templates.html">Templates</a>
+          <a href="errors.html">Errors &amp; status codes</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Examples</div>
+          <a href="examples.html">Sample controllers</a>
+          <a href="testing.html">Smoke tests</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Internals</div>
+          <a href="configuration.html">Configuration</a>
+          <a href="source.html">Source walkthrough</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>Middleware</h1>
+      <p class="lede">
+        Express-style middleware for annotify. Runs on every request, with chain
+        termination via <code>next()</code>. Distinct from <code>useInterceptor</code>,
+        which runs once at <code>build()</code> time.
+      </p>
+
+      <h2>Quick start</h2>
+      <pre><code class="hl-ts">import { AppBuilder, staticFiles } from 'annotify';
+
+const app = new AppBuilder();
+
+// Global middleware (every request)
+app.use((req, res, next) =&gt; {
+  console.log(req.method, req.url);
+  next();
+});
+
+// Path-prefixed middleware (only fires for matching paths;
+// req.url is rewritten to drop the prefix).
+app.use('/static', staticFiles('./public'));</code></pre>
+
+      <h2>Per-route middleware with <code>@Use</code></h2>
+      <p>
+        Annotate individual methods with <code>@Use(...middlewares)</code>. The
+        chain runs after route match, before <code>resolveArgs</code>.
+      </p>
+      <pre><code class="hl-ts">import { Controller, GetMapping, Use } from 'annotify';
+
+const requireAuth: MiddlewareFn = (req, res, next) =&gt; {
+  if (!req.headers['x-token']) {
+    res.writeHead(401); res.end(); return;
+  }
+  next();
+};
+
+@Controller('/api')
+export class ApiController {
+  @GetMapping('/public')
+  public() { return { ok: true }; }
+
+  @GetMapping('/private')
+  @Use(requireAuth)
+  private() { return { secret: 42 }; }
+
+  // Multiple middlewares stack top-to-bottom.
+  @Use(requireAuth, rateLimit(60))
+  @PostMapping('/submit')
+  submit() { return { ok: true }; }
+}</code></pre>
+
+      <h2>Ordering</h2>
+      <p>The pipeline runs in this order for every request:</p>
+      <ol>
+        <li><strong>Pre-routing middleware</strong> &mdash; the global
+          <code>app.use(...)</code> chain. Path-prefixed entries are filtered
+          to those whose prefix matches the request path. <code>req.url</code>
+          is rewritten so downstream code sees the mount-relative path.</li>
+        <li><strong>Route match</strong> &mdash; the trie lookup against
+          <code>@GetMapping</code> / <code>@PostMapping</code> / etc.</li>
+        <li><strong>Per-route middleware</strong> &mdash; the
+          <code>@Use(...)</code> chain on the matched method (plus
+          class-level middleware from <code>@UseClass(...)</code>).</li>
+        <li><strong>Handler invocation</strong> &mdash;
+          <code>resolveArgs</code> then the bound handler.</li>
+        <li><strong>Post-routing fallthrough</strong> &mdash; if no annotation
+          route matched, the global middleware chain runs once more. If
+          nothing writes a response, the framework sends <code>404 Not Found</code>.</li>
+      </ol>
+
+      <h2>Built-in middleware</h2>
+      <pre><code class="hl-ts">import {
+  json,          // JSON body parser (alternative to framework's built-in)
+  corsMw,        // app-wide CORS headers
+  requestLogger, // stdout access logger
+  staticFiles,   // serve a directory under a mount prefix
+} from 'annotify';
+
+app.use(corsMw({ origins: ['https://my.app'], credentials: true }));
+app.use(json({ limit: '2mb' }));
+app.use(requestLogger());
+app.use('/static', staticFiles('./public', { index: 'index.html' }));</code></pre>
+
+      <h2>Static files</h2>
+      <pre><code class="hl-ts">import { staticFiles } from 'annotify';
+
+// Mount at root, serve from ./public
+app.use(staticFiles('./public'));
+
+// Mount under /static
+app.use('/static', staticFiles('./public'));
+
+// With options
+app.use('/static', staticFiles('./public', {
+  index: 'index.html',         // default
+  cacheControl: 'public, max-age=3600',
+}));</code></pre>
+      <p>
+        Static middleware honors <code>Range</code> requests, emits
+        <code>ETag</code> + <code>Last-Modified</code> + <code>If-None-Match</code>
+        for cheap 304s, and rejects path-traversal attempts (<code>..</code>).
+      </p>
+
+      <h2>Response helpers</h2>
+      <pre><code class="hl-ts">import { html, redirect } from 'annotify';
+
+@GetMapping('/page')
+page() { return html('&lt;h1&gt;plain&lt;/h1&gt;'); }
+
+@GetMapping('/go')
+go() { return redirect('/page'); }</code></pre>
+
+      <h2>Settings</h2>
+      <p>
+        <code>app.set(key, value)</code> and <code>app.get(key)</code> form a
+        simple settings bag. Currently used for template configuration:
+      </p>
+      <pre><code class="hl-ts">app.set('views', './views');         // template directory
+app.set('view engine', 'html');     // extension + engine name</code></pre>
+    </main>
+  </div>
+</body>
+</html>

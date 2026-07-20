@@ -3,6 +3,7 @@ import { Router } from './router.js';
 import { resolveArgs } from './resolver.js';
 import {
   HttpError,
+  sendBadRequest,
   sendInternalError,
   sendJson,
   sendMethodNotAllowed,
@@ -15,8 +16,24 @@ import type { HttpMethod } from '../types/http.js';
 import type { CorsConfig } from '../types/metadata.js';
 import { buildCorsHeaders, CORS_DEFAULTS } from '../decorators/cors.js';
 import type { RequestLogger, LogEntry } from './logger.js';
+import { runChain } from './middleware.js';
+import { ejsEngine, renderFile, resolveView } from './template.js';
+import type { EngineFn, Locals, MiddlewareEntry } from '../types/middleware.js';
+import type { AnnotifyResponse } from './built-in-mw.js';
 
 const MAX_BODY_BYTES = 1 * 1024 * 1024;
+
+function safeDecodeURIComponent(s: string): string {
+  // decodeURIComponent throws URIError on malformed percent-encoding
+  // (e.g. %ZZ, lone %, %G1). Treat those as raw strings rather than 500ing
+  // the request. RFC 3986 says malformed sequences should be reported; we
+  // choose graceful degradation over failing the entire request.
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s.replace(/%(?![0-9A-Fa-f]{2})/g, '%25');
+  }
+}
 
 function parseQuery(url: string): Record<string, string | string[]> {
   const qs = url.split('?')[1];
@@ -25,8 +42,8 @@ function parseQuery(url: string): Record<string, string | string[]> {
   for (const pair of qs.split('&')) {
     if (!pair) continue;
     const eq = pair.indexOf('=');
-    const k = decodeURIComponent(eq === -1 ? pair : pair.slice(0, eq));
-    const v = decodeURIComponent(eq === -1 ? '' : pair.slice(eq + 1));
+    const k = safeDecodeURIComponent(eq === -1 ? pair : pair.slice(0, eq));
+    const v = safeDecodeURIComponent(eq === -1 ? '' : pair.slice(eq + 1));
     if (k in out) {
       const prev = out[k];
       out[k] = Array.isArray(prev) ? [...prev, v] : [prev as string, v];
@@ -63,15 +80,19 @@ async function readBody(req: IncomingMessage, res: ServerResponse): Promise<unkn
       chunks.push(chunk);
     });
     req.on('end', () => {
+      const buf = Buffer.concat(chunks);
+      if (buf.length === 0) {
+        resolveBody(undefined);
+        return;
+      }
       try {
-        const buf = Buffer.concat(chunks);
-        if (buf.length === 0) {
-          resolveBody(undefined);
-          return;
-        }
         resolveBody(JSON.parse(buf.toString('utf8')));
       } catch (err) {
-        reject(err);
+        // Malformed JSON body — surface as 400, not 500. The request is
+        // bad, not the server.
+        const detail = err instanceof Error ? err.message : String(err);
+        sendBadRequest(res, `Malformed JSON body: ${detail}`);
+        resolveBody(ABORTED);
       }
     });
     req.on('error', reject);
@@ -83,6 +104,73 @@ export interface ServerOptions {
   logger?: RequestLogger;
   /** Empty string disables the introspection endpoint. */
   introspectionPath?: string;
+  /** Express-style middleware chain registered via `app.use(...)`. */
+  middlewares?: MiddlewareEntry[];
+  /** Registered template engines. */
+  engines?: ReadonlyMap<string, EngineFn>;
+  /** App settings — `views`, `view engine`, etc. */
+  settings?: ReadonlyMap<string, unknown>;
+}
+
+/**
+ * Response helper interface used by handlers via `res.render(...)`.
+ * We augment Node's `ServerResponse` with these methods at request time.
+ */
+interface ResponseWithHelpers {
+  render: (name: string, data?: Record<string, unknown>) => Promise<string>;
+}
+
+/**
+ * Build a `res.render` shim bound to the supplied engine + settings.
+ */
+function buildRender(
+  res: ServerResponse,
+  settings: ReadonlyMap<string, unknown> | undefined,
+  engines: ReadonlyMap<string, EngineFn> | undefined,
+): (name: string, data?: Record<string, unknown>) => Promise<string> {
+  return async function render(name: string, data: Record<string, unknown> = {}): Promise<string> {
+    const viewsDir = String(settings?.get('views') ?? './views');
+    const ext = '.' + String(settings?.get('view engine') ?? 'html');
+    const engine = engines?.get(ext.slice(1)) ?? ejsEngine;
+    const filePath = resolveView(name, viewsDir, ext);
+    const html = renderFile(name, data, viewsDir, ext.slice(1), engine);
+    // Mark the response so the success branch sends HTML instead of JSON.
+    (res as any).__annotifyRenderedPath = filePath;
+    return html;
+  };
+}
+
+/**
+ * Wrap a `ServerResponse` so handlers can call `res.render(name, data)`.
+ * The render method computes the HTML, marks the response, and returns the
+ * string. The actual writeHead/end is done by the post-handler branch in
+ * `handle()`.
+ */
+function attachResponseHelpers(
+  res: ServerResponse,
+  settings: ReadonlyMap<string, unknown> | undefined,
+  engines: ReadonlyMap<string, EngineFn> | undefined,
+): void {
+  const r = res as ServerResponse & ResponseWithHelpers;
+  r.render = buildRender(res, settings, engines);
+}
+
+/**
+ * Rewrite `req.url` for path-prefixed middleware mounts. The supplied
+ * prefix is stripped, leaving the path relative to the mount. Returns the
+ * new URL string or `null` if the path does not match the prefix.
+ */
+function rewriteForPrefix(rawUrl: string, prefix: string): string | null {
+  if (!prefix) return rawUrl;
+  const [pathPart, queryPart] = rawUrl.split('?');
+  if (!pathPart.startsWith(prefix)) return null;
+  // Ensure boundary: the prefix is followed by `/` or end-of-string.
+  const rest = pathPart.slice(prefix.length);
+  if (rest === '' || rest.startsWith('/')) {
+    const newPath = rest === '' ? '/' : rest;
+    return queryPart ? `${newPath}?${queryPart}` : newPath;
+  }
+  return null;
 }
 
 /**
@@ -213,6 +301,9 @@ export function createApp(router: Router, opts: ServerOptions = {}) {
   const logger = opts.logger;
   const introspectionPath = opts.introspectionPath ?? '';
   const loggerEnabled = !!logger?.isEnabled();
+  const middlewares = opts.middlewares ?? [];
+  const engines = opts.engines;
+  const settings = opts.settings;
 
   /**
    * Cache: introspection payload, generated once and reused. The route
@@ -227,7 +318,36 @@ export function createApp(router: Router, opts: ServerOptions = {}) {
     return introspectionCache;
   }
 
+  /**
+   * Filter the global middleware list to those whose prefix matches the
+   * request path. Path-prefixed middlewares have their `req.url` rewritten
+   * to drop the prefix so downstream sees the mount-relative path.
+   */
+  function selectMiddlewares(rawUrl: string): {
+    mws: Array<{ prefix: string; mw: (typeof middlewares)[number]['mw'] }>;
+    rewrittenUrl: string;
+  } {
+    const out: Array<{ prefix: string; mw: (typeof middlewares)[number]['mw'] }> = [];
+    let lastRewritten = rawUrl;
+    for (const entry of middlewares) {
+      if (!entry.prefix) {
+        out.push(entry);
+        continue;
+      }
+      const rewritten = rewriteForPrefix(rawUrl, entry.prefix);
+      if (rewritten === null) continue;
+      out.push(entry);
+      lastRewritten = rewritten;
+    }
+    return { mws: out, rewrittenUrl: lastRewritten };
+  }
+
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // Attach res.render shim before any handler/middleware can use it.
+    attachResponseHelpers(res, settings, engines);
+    // Per-request locals bag.
+    (req as any).locals = {} as Locals;
+
     const method = (req.method ?? 'GET').toUpperCase() as HttpMethod;
     const rawUrl = req.url ?? '/';
     const pathOnly = rawUrl.split('?')[0];
@@ -278,7 +398,36 @@ export function createApp(router: Router, opts: ServerOptions = {}) {
     const bodyResult = await readBody(req, res);
     if (bodyResult === ABORTED) return;
 
-    const matched = router.match(method, pathOnly);
+    // ---------- Pre-routing middleware chain ----------
+    //
+    // Runs BEFORE the router. A middleware can short-circuit by writing
+    // to res, or pass through via next(). If the chain falls through,
+    // we proceed to route matching. We rewrite req.url for path-prefixed
+    // mounts so downstream code sees the mount-relative path.
+    const sel = selectMiddlewares(rawUrl);
+    if (sel.mws.length > 0) {
+      if (sel.rewrittenUrl !== rawUrl) {
+        req.url = sel.rewrittenUrl;
+      }
+      try {
+        await runChain(
+          sel.mws.map((e) => e.mw),
+          req,
+          res,
+          () => {
+            // Terminal: continue to routing.
+          },
+        );
+      } catch (err) {
+        if (!res.writableEnded) {
+          sendInternalError(res, err);
+        }
+        return;
+      }
+      if (res.writableEnded) return;
+    }
+
+    const matched = router.match(method, (req.url ?? '/').split('?')[0]);
     let cors: CorsConfig | undefined;
     let preCors: PrecomputedCors | null = null;
     if (matched) {
@@ -287,11 +436,11 @@ export function createApp(router: Router, opts: ServerOptions = {}) {
     }
 
     if (!matched) {
-      const allowed = router.methodsAt(pathOnly);
+      const allowed = router.methodsAt((req.url ?? '/').split('?')[0]);
       if (allowed && allowed.length > 0) {
         const headers: Record<string, string> = { Allow: allowed.join(', ') };
         for (const m of allowed) {
-          const sample = router.match(m, pathOnly)?.entry;
+          const sample = router.match(m, (req.url ?? '/').split('?')[0])?.entry;
           if (sample) {
             const c = resolveCors(sample as any);
             if (c) {
@@ -305,11 +454,33 @@ export function createApp(router: Router, opts: ServerOptions = {}) {
         sendMethodNotAllowed(res, allowed, headers);
         return;
       }
+      // ---------- Post-routing fallthrough chain ----------
+      // No annotation route matched AND no explicit method-list. Run the
+      // global middleware chain again as a fallthrough. If nothing writes
+      // a response, default to 404. This lets middleware like the static
+      // file handler serve 404 with a custom page, or a fallback
+      // middleware to render a templated 404.
+      if (middlewares.length > 0) {
+        try {
+          await runChain(
+            middlewares.map((e) => e.mw),
+            req,
+            res,
+            () => {
+              sendNotFound(res);
+            },
+          );
+          return;
+        } catch (err) {
+          if (!res.writableEnded) sendInternalError(res, err);
+          return;
+        }
+      }
       sendNotFound(res);
       return;
     }
 
-    const query = parseQuery(rawUrl);
+    const query = parseQuery(req.url ?? '/');
     const ctx: RequestContext = {
       req, res,
       pathVars: matched.pathVars,
@@ -320,6 +491,17 @@ export function createApp(router: Router, opts: ServerOptions = {}) {
 
     try {
       const entry = matched.entry;
+      // ---------- Per-route @Use middleware chain ----------
+      // Runs after route match, before resolveArgs. Class-level middlewares
+      // are prepended at registration time, so entry.middlewares here is
+      // [classMws..., ...methodMws].
+      const routeMws = entry.middlewares;
+      if (routeMws && routeMws.length > 0) {
+        await runChain(routeMws, req, res, () => {
+          // Terminal: continue to resolveArgs + handler.
+        });
+        if (res.writableEnded) return;
+      }
       const args = await resolveArgs(entry, ctx);
       const fn = entry._handler as (...a: unknown[]) => unknown;
       if (!fn) throw new Error('Handler not bound for route ' + entry.path);
@@ -355,8 +537,42 @@ export function createApp(router: Router, opts: ServerOptions = {}) {
         res.end();
         return;
       }
+
+      // Built-in response helpers (html, redirect, etc.).
+      if (isAnnotifyResponse(result)) {
+        await writeAnnotifyResponse(res, method, result, status, corsHeaders);
+        return;
+      }
+
+      // Rendered template (via res.render(...)) — return value of render is
+      // the rendered HTML string; the side effect on res has already marked
+      // it. Write it out as text/html.
+      if (typeof result === 'string' && (res as any).__annotifyRenderedPath) {
+        const body = result;
+        res.writeHead(status, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Content-Length': Buffer.byteLength(body),
+          ...corsHeaders,
+        });
+        res.end(body);
+        return;
+      }
+
       if (typeof result === 'string' || Buffer.isBuffer(result)) {
         sendFast(res, status, result, corsHeaders);
+        return;
+      }
+      // RFC 7231 §4.3.2: HEAD responses MUST NOT include a message body.
+      // Send headers + Content-Length so the client knows what the body
+      // WOULD be, but omit the actual bytes.
+      if (method === 'HEAD') {
+        const payload = JSON.stringify(result);
+        res.writeHead(status, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Length': Buffer.byteLength(payload),
+          ...corsHeaders,
+        });
+        res.end();
         return;
       }
       sendJson(res, status, result, corsHeaders);
@@ -408,4 +624,69 @@ export function createApp(router: Router, opts: ServerOptions = {}) {
         logger!.log(entry);
       });
   });
+}
+
+/**
+ * Type-guard for objects returned from `html()`, `redirect()`, etc.
+ */
+function isAnnotifyResponse(value: unknown): value is AnnotifyResponse {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '__annotifyKind' in (value as Record<string, unknown>)
+  );
+}
+
+/**
+ * Write an `AnnotifyResponse` to the wire, choosing the appropriate
+ * status / content-type / body based on `__annotifyKind`.
+ */
+async function writeAnnotifyResponse(
+  res: ServerResponse,
+  method: HttpMethod,
+  resp: AnnotifyResponse,
+  fallbackStatus: number,
+  corsHeaders: Record<string, string> | undefined,
+): Promise<void> {
+  const status = resp.status ?? fallbackStatus;
+  if (resp.__annotifyKind === 'redirect') {
+    const location = resp.location ?? '/';
+    res.writeHead(status, { Location: location, ...corsHeaders });
+    res.end();
+    return;
+  }
+  if (resp.__annotifyKind === 'html') {
+    const body = typeof resp.body === 'string' ? resp.body : '';
+    if (method === 'HEAD') {
+      res.writeHead(status, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Length': Buffer.byteLength(body),
+        ...corsHeaders,
+      });
+      res.end();
+      return;
+    }
+    res.writeHead(status, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': Buffer.byteLength(body),
+      ...corsHeaders,
+    });
+    res.end(body);
+    return;
+  }
+  if (resp.__annotifyKind === 'json') {
+    sendJson(res, status, resp.body, corsHeaders);
+    return;
+  }
+  if (resp.__annotifyKind === 'buffer' && Buffer.isBuffer(resp.body)) {
+    res.writeHead(status, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': (resp.body as Buffer).length,
+      ...corsHeaders,
+    });
+    res.end(resp.body as Buffer);
+    return;
+  }
+  // passthrough or unknown — write whatever body as-is.
+  sendJson(res, status, resp.body, corsHeaders);
 }

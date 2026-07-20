@@ -37,12 +37,23 @@ export class Router {
           `Handler '${entry.handlerName}' not found on controller after instantiation`,
         );
       }
+      // Capture the original (un-bound) handler arity. `fn.bind(...)` collapses
+      // `.length` to 0, which would otherwise make the resolver push zero
+      // positional args for un-decorated handlers. Storing it on the entry
+      // lets the resolver fall back to positional (req, res, ctx) injection.
+      entry.handlerArity = fn.length;
       entry._handler = fn.bind(instance);
       // Resolve the full path here — class decorators run AFTER method decorators in legacy TS,
       // so meta.basePath wasn't available when @GetMapping ran.
       entry.path = joinPath(meta.basePath, entry.subPath);
       // Carry the class-level CORS config onto the entry for fallback resolution.
       if (meta.cors && !entry.cors) entry.classCors = meta.cors;
+      // Carry class-level middlewares onto each entry so the per-route chain
+      // can prepend them at request time without a second metadata lookup.
+      if (meta.classMiddlewares && meta.classMiddlewares.length > 0) {
+        const combined = [...meta.classMiddlewares, ...(entry.middlewares ?? [])];
+        entry.middlewares = combined;
+      }
       this.addEntry(entry);
     }
   }

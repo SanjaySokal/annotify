@@ -11,7 +11,7 @@
     <aside class="sidebar">
       <div class="sidebar-brand">
         <h1>annotify</h1>
-        <p>v0.4.0 · pure Node + TS</p>
+        <p>v0.6.0 · pure Node + TS</p>
         <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
       </div>
       <nav class="nav">
@@ -178,6 +178,9 @@
   scan(dir: string): Promise&lt;this&gt;        <span class="hl-com">// auto-discover controllers</span>
   register(ctor: Function): this           <span class="hl-com">// manual registration</span>
   setDefaultIsRest(v: boolean): this        <span class="hl-com">// default JSON behavior</span>
+  useLogger(opts: LoggerOptions): this     <span class="hl-com">// enable per-request access log</span>
+  exposeRoutes(path?: string | null): this <span class="hl-com">// expose /__annotify/routes</span>
+  useInterceptor(fn): this                 <span class="hl-com">// wire cross-cutting concerns (new in v0.5.0)</span>
   build(): Router                          <span class="hl-com">// instantiate + bind handlers</span>
   listen(port: number, host?: string): Promise&lt;http.Server&gt;
 }</code></pre>
@@ -189,6 +192,21 @@ const server = await app.listen(3000);
 <span class="hl-com">// server is an http.Server; close() it on shutdown</span></code></pre>
 
       <p><code>listen</code> returns the underlying <code>http.Server</code>. Wire it to <code>SIGINT</code>/<code>SIGTERM</code> for graceful shutdown.</p>
+
+      <h2 id="interceptors">Interceptors <span class="hl-comment">(added in v0.5.0)</span></h2>
+
+      <p><code>AppBuilder.useInterceptor(fn)</code> lets external packages wire cross-cutting concerns (caching, transactions, auth) into your controllers without modifying annotify itself.</p>
+
+      <pre><code>app.useInterceptor((controllerClass) => {
+  <span class="hl-com">// mutate controllerClass.prototype before instantiation</span>
+  <span class="hl-com">// — wraps methods, replaces getters, etc.</span>
+});</code></pre>
+
+      <p>The interceptor runs once per registered controller, every time <code>build()</code> is called. Multiple interceptors run in registration order.</p>
+
+      <div class="callout">
+        <p><strong>Canonical example:</strong> <a href="https://www.npmjs.com/package/annotify-redis"><code>annotify-redis</code></a> uses this hook to wrap <code>@Cacheable</code> / <code>@CachePut</code> / <code>@CacheEvict</code> methods. Instead of calling <code>wrapController(UserController, cache)</code> for every controller, you call <code>enableCaching(app, cache)</code> once — every controller registered afterwards gets its decorated methods wrapped automatically.</p>
+      </div>
 
       <h2 id="errors-core">Errors</h2>
       <p><code>src/core/errors.ts</code></p>

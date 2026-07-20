@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Templates — annotify</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h1>annotify</h1>
+        <p>v0.6.0 · pure Node + TS</p>
+        <p><a href="https://www.npmjs.com/package/annotify">npm</a> · <a href="https://github.com/SanjaySokal/annotify">GitHub</a></p>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Overview</div>
+          <a href="index.html">Introduction</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html">Quick start</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="decorators.html">Decorators</a>
+          <a href="core.html">Core framework</a>
+          <a href="middleware.html">Middleware</a>
+          <a href="templates.html" class="active">Templates</a>
+          <a href="errors.html">Errors &amp; status codes</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Examples</div>
+          <a href="examples.html">Sample controllers</a>
+          <a href="testing.html">Smoke tests</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Internals</div>
+          <a href="configuration.html">Configuration</a>
+          <a href="source.html">Source walkthrough</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>Templates</h1>
+      <p class="lede">
+        Built-in EJS-style template engine plus a tiny pluggable engine
+        interface. Render from a handler with <code>res.render(name, data)</code>.
+      </p>
+
+      <h2>Setup</h2>
+      <pre><code class="hl-ts">import { AppBuilder } from 'annotify';
+
+const app = new AppBuilder();
+app.set('views', './views');          // template directory
+app.set('view engine', 'html');       // extension + engine name
+
+// The built-in EJS engine is pre-registered under 'html'. No need to call
+// app.engine('html', ...) unless you want to swap it.</code></pre>
+
+      <h2>Render from a handler</h2>
+      <pre><code class="hl-ts">import { Controller, GetMapping } from 'annotify';
+
+@Controller('/')
+export class PageController {
+  @GetMapping('/')
+  index(_req, res) {
+    return res.render('home', {
+      title: 'annotify',
+      items: ['a', 'b', 'c'],
+    });
+  }
+}</code></pre>
+
+      <h2>Template syntax (EJS-style)</h2>
+      <pre><code class="hl-html">&lt;h1&gt;&lt;%= title %&gt;&lt;/h1&gt;
+
+&lt;%# comment — emits nothing %&gt;
+
+&lt;% if (items.length &gt; 0) { %&gt;
+  &lt;ul&gt;
+    &lt;% for (let i = 0; i &lt; items.length; i++) { %&gt;
+      &lt;li&gt;&lt;%= items[i] %&gt;&lt;/li&gt;
+    &lt;% } %&gt;
+  &lt;/ul&gt;
+&lt;% } else { %&gt;
+  &lt;p&gt;Nothing here.&lt;/p&gt;
+&lt;% } %&gt;</code></pre>
+
+      <h3>Tag reference</h3>
+      <table>
+        <thead>
+          <tr><th>Tag</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>&lt;% code %&gt;</code></td><td>Scriptlet &mdash; runs JS, emits nothing.</td></tr>
+          <tr><td><code>&lt;%= expr %&gt;</code></td><td>Escaped HTML interpolation.</td></tr>
+          <tr><td><code>&lt;%- expr %&gt;</code></td><td>Raw HTML interpolation (no escape).</td></tr>
+          <tr><td><code>&lt;%# comment %&gt;</code></td><td>Comment, emits nothing.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Pluggable engines</h2>
+      <p>
+        Register a custom engine via <code>app.engine(name, engine)</code>. The
+        engine receives the template source string and a data object.
+      </p>
+      <pre><code class="hl-ts">import type { EngineFn } from 'annotify';
+
+const handlebarsAdapter: EngineFn = {
+  render(template: string, data: Record&lt;string, unknown&gt;): string {
+    return myHandlebarsCompile(template)(data);
+  },
+};
+
+app.engine('hbs', handlebarsAdapter);
+app.set('view engine', 'hbs');</code></pre>
+
+      <h2>Helpers</h2>
+      <ul>
+        <li><code>htmlEscape(value)</code> &mdash; escape <code>&amp;</code>,
+          <code>&lt;</code>, <code>&gt;</code>, <code>"</code>, <code>'</code>
+          for safe interpolation.</li>
+        <li><code>resolveView(name, viewsDir, ext)</code> &mdash; resolve a
+          view name to an absolute path, adding the configured extension.</li>
+        <li><code>renderFile(name, data, viewsDir, ext, engine)</code> &mdash;
+          read &amp; compile a view, returning the rendered string.</li>
+      </ul>
+
+      <h2>Caching</h2>
+      <p>
+        Compiled templates are cached by <code>absolutePath + mtimeMs</code>
+        (Vite-style invalidation). No manual cache eviction needed.
+      </p>
+    </main>
+  </div>
+</body>
+</html>

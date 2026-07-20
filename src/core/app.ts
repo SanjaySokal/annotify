@@ -6,6 +6,13 @@ import { createApp } from './server.js';
 import { scanControllers } from './scanner.js';
 import { getRouteMeta } from '../decorators/metadata.js';
 import { RequestLogger, type LoggerOptions } from './logger.js';
+import { ejsEngine, renderFile } from './template.js';
+import type {
+  EngineFn,
+  MiddlewareFn,
+  MiddlewareEntry,
+  RenderCallback,
+} from '../types/middleware.js';
 
 export interface ClusterOptions {
   /** 'auto' = one worker per CPU core (default). A number pins the count. */
@@ -25,6 +32,31 @@ export class AppBuilder {
   private introspectionPath = '/__annotify/routes';
   /** Whether cluster() has already been called. */
   private clusterStarted = false;
+  /**
+   * Cross-cutting interceptors: functions that run against every registered
+   * controller class BEFORE instantiation in `build()`. Lets external packages
+   * (caching, transactions, auth) mutate the controller prototype to wire
+   * in behavior. Multiple interceptors run in registration order, every time
+   * `build()` is called.
+   */
+  private interceptors: Array<(controllerClass: Function) => void> = [];
+  /**
+   * Express-style middleware chain. Each entry has an optional path prefix;
+   * an empty string means the middleware applies to every request. The chain
+   * runs between body parsing and route matching.
+   */
+  private middlewares: MiddlewareEntry[] = [];
+  /**
+   * Registered template engines. The default view engine (configured via
+   * `app.set('view engine', '...')`) selects which one `res.render(name)`
+   * uses at request time.
+   */
+  private engines: Map<string, EngineFn> = new Map();
+  /**
+   * Settings bag — `views`, `view engine`, etc. Mirrors Express's
+   * `app.set`/`app.get` shape.
+   */
+  private settings: Map<string, unknown> = new Map();
 
   /** Recursively scan a directory for compiled controllers and register them. */
   async scan(dir: string): Promise<this> {
@@ -69,9 +101,128 @@ export class AppBuilder {
     return this;
   }
 
+  /**
+   * Register a function that runs against every registered controller class,
+   * BEFORE instantiation in `build()`. Use this to wire cross-cutting
+   * concerns (caching, transactions, auth) that need to mutate the
+   * controller prototype.
+   *
+   * The interceptor receives the controller class as its only argument.
+   * Multiple interceptors run in registration order, every time `build()` is
+   * called. Interceptors run BEFORE the controller is instantiated, so they
+   * can safely replace or wrap methods on the prototype.
+   *
+   * Example — wire Redis caching into every controller:
+   *
+   *   import { enableCaching, RedisCacheManager } from 'annotify-redis';
+   *   const cache = new RedisCacheManager(adapter);
+   *   enableCaching(app, cache);
+   *
+   * Or call the interceptor directly:
+   *
+   *   app.useInterceptor((Ctor) => { console.log('wrapping', Ctor.name); });
+   */
+  useInterceptor(fn: (controllerClass: Function) => void): this {
+    this.interceptors.push(fn);
+    return this;
+  }
+
+  /**
+   * Register an Express-style middleware.
+   *
+   *   app.use((req, res, next) => { ... next(); });         // global
+   *   app.use('/api', authMw);                              // prefixed
+   *   app.use(['/api', '/v1'], authMw);                    // multi-prefix
+   *
+   * When a prefix is given, only requests whose path starts with that
+   * prefix trigger the middleware, and `req.url` is rewritten so downstream
+   * handlers/middlewares see the path relative to the mount point.
+   */
+  use(pathOrMw: string | string[] | MiddlewareFn, mw?: MiddlewareFn): this {
+    if (typeof pathOrMw === 'function') {
+      this.middlewares.push({ prefix: '', mw: pathOrMw });
+      return this;
+    }
+    if (!mw) {
+      throw new Error('app.use(path, mw) requires a middleware function as the second argument');
+    }
+    const prefixes = Array.isArray(pathOrMw) ? pathOrMw : [pathOrMw];
+    for (const p of prefixes) {
+      this.middlewares.push({ prefix: normalizePrefix(p), mw });
+    }
+    return this;
+  }
+
+  /**
+   * Register a template engine under a name. The built-in EJS-style engine
+   * is pre-registered under `'html'` and `'ejs'`.
+   *
+   *   app.engine('html', ejsEngine);
+   *   app.engine('hbs', myHandlebarsAdapter);
+   */
+  engine(name: string, engine: EngineFn): this {
+    this.engines.set(name, engine);
+    return this;
+  }
+
+  /**
+   * Set a settings value. Used for `views`, `view engine`, etc.
+   *
+   *   app.set('views', './views');
+   *   app.set('view engine', 'html');
+   */
+  set(key: string, value: unknown): this {
+    this.settings.set(key, value);
+    return this;
+  }
+
+  /** Read a setting. Returns `undefined` if unset. */
+  get(key: string): unknown {
+    return this.settings.get(key);
+  }
+
+  /**
+   * Render a view template. Used by `res.render(name, data)` in handlers
+   * — most callers won't invoke this directly.
+   */
+  render(name: string, data: Record<string, unknown> = {}, cb?: RenderCallback): Promise<string> | void {
+    const viewsDir = String(this.settings.get('views') ?? './views');
+    const ext = String(this.settings.get('view engine') ?? 'html');
+    const engine = this.engines.get(ext) ?? ejsEngine;
+    try {
+      const html = renderFile(name, data, viewsDir, '.' + ext, engine);
+      if (cb) cb(null, html);
+      else return Promise.resolve(html);
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      if (cb) cb(e);
+      else return Promise.reject(e);
+    }
+    return;
+  }
+
+  /** Read-only snapshot of the middleware chain. Used by the server pipeline. */
+  getMiddlewares(): readonly MiddlewareEntry[] {
+    return this.middlewares;
+  }
+
+  /** Read-only snapshot of the engines map. Used by the server pipeline. */
+  getEngines(): ReadonlyMap<string, EngineFn> {
+    return this.engines;
+  }
+
+  /** Read-only snapshot of the settings map. Used by the server pipeline. */
+  getSettings(): ReadonlyMap<string, unknown> {
+    return this.settings;
+  }
+
   /** Build all registered controllers into the router. */
   build(): Router {
     for (const ctor of this.controllers) {
+      // Run user-registered interceptors first, so any prototype mutations
+      // (cache wrappers, transaction proxies, etc.) are in place before we
+      // instantiate the controller.
+      for (const fn of this.interceptors) fn(ctor);
       const meta = getRouteMeta(ctor as unknown as object);
       if (!meta) {
         throw new Error('Class is not decorated with @Controller or @RestController: ' + (ctor as any).name);
@@ -88,6 +239,9 @@ export class AppBuilder {
       defaultIsRest: this.defaultIsRest,
       logger: this.logger,
       introspectionPath: this.introspectionPath,
+      middlewares: this.middlewares,
+      engines: this.engines,
+      settings: this.settings,
     });
     return new Promise((resolve, reject) => {
       server.once('error', reject);
@@ -102,6 +256,9 @@ export class AppBuilder {
         console.log(
           `[router] ${this.controllers.length} controller(s), ${this.countRoutes()} route(s) registered`,
         );
+        if (this.middlewares.length > 0) {
+          console.log(`[middleware] ${this.middlewares.length} mw(s) registered`);
+        }
         if (this.introspectionPath) {
           console.log(`[introspect] GET ${this.introspectionPath}`);
         }
@@ -130,7 +287,7 @@ export class AppBuilder {
    *
    * Or use the bundled `bootstrap()` helper for a one-liner:
    *
-   *   import { bootstrap } from 'annotify';
+   *   import { bootstrap } from '..\index.js';
    *   await bootstrap(app, { port: 3000, workers: 'auto' });
    *
    * Notes:
@@ -200,8 +357,8 @@ export class AppBuilder {
 /**
  * One-liner bootstrap helper. Use this in `main.ts` for production:
  *
- *   import { bootstrap } from 'annotify';
- *   import { AppBuilder } from 'annotify';
+ *   import { bootstrap } from '..\index.js';
+ *   import { AppBuilder } from '..\index.js';
  *
  *   const app = new AppBuilder();
  *   await app.scan('./dist/controllers');
@@ -209,6 +366,14 @@ export class AppBuilder {
  */
 export async function bootstrap(app: AppBuilder, opts: ClusterOptions): Promise<Server | void> {
   return app.cluster(opts);
+}
+
+function normalizePrefix(p: string): string {
+  if (!p) return '';
+  if (p === '/') return '';
+  // Strip trailing slashes for comparison, but keep leading slash for the
+  // path-prefix match. Server pipeline does its own URL rewriting.
+  return p.endsWith('/') ? p.slice(0, -1) : p;
 }
 
 export { HttpError } from './errors.js';

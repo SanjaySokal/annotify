@@ -1,7 +1,7 @@
 {
   "name": "annotify",
-  "version": "0.4.0",
-  "description": "Annotation-based HTTP routing for Node.js + TypeScript, inspired by Spring Boot. Zero runtime dependencies.",
+  "version": "0.6.0",
+  "description": "Annotation-based HTTP routing for Node.js + TypeScript, inspired by Spring Boot. Zero runtime dependencies. Express-style middleware + templates.",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -22,12 +22,15 @@
   "files": [
     "dist",
     "docs",
+    "examples/views",
+    "examples/public",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/src/main.js",
+    "start:web": "node dist/examples/main-web.js",
     "dev": "tsc --watch",
     "test": "echo 'No unit tests yet — run npm start + smoke-simple.ps1 for end-to-end checks.'",
     "prepublishOnly": "npm run build"
@@ -45,7 +48,11 @@
     "typescript",
     "controller",
     "rest",
-    "rest-api"
+    "rest-api",
+    "middleware",
+    "templates",
+    "ejs",
+    "static-files"
   ],
   "engines": {
     "node": ">=18"

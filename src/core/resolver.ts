@@ -14,8 +14,19 @@ export async function resolveArgs(
   entry: RouteEntry,
   ctx: RequestContext,
 ): Promise<unknown[]> {
-  const fn = entry._handler as Function | undefined;
-  const arity = fn ? fn.length : 0;
+  // Use `entry.paramTypes.length` as the source of truth for parameter count.
+  // This is the metadata recorded by the @GetMapping / @PostMapping decorator
+  // (via consumeParamRegistry) — it survives wrapping via Function.prototype.bind
+  // (which resets `.length` to 0 on the bound function) and any cache /
+  // interceptor wrappers in the prototype.
+  //
+  // If there are no parameter decorators, fall back to the original
+  // (un-bound) handler arity so handlers like `(_req, res) => …` still get
+  // `req`, `res`, `ctx` injected positionally.
+  let arity = entry.paramTypes.length;
+  if (arity === 0 && entry.handlerArity && entry.handlerArity > 0) {
+    arity = entry.handlerArity;
+  }
   const args: unknown[] = [];
   const pattern = entry.path;
   const segs = pattern.split('/').filter(Boolean);
@@ -62,7 +73,11 @@ export async function resolveArgs(
       case 'header': {
         const name = (meta.name ?? '').toLowerCase();
         const v = ctx.req.headers[name];
-        args.push(Array.isArray(v) ? v.join(', ') : v);
+        let value: string | string[] | undefined = Array.isArray(v) ? v.join(', ') : v;
+        if (value === undefined && meta.defaultValue !== undefined) {
+          value = meta.defaultValue;
+        }
+        args.push(value);
         break;
       }
     }

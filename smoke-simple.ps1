@@ -37,7 +37,7 @@ function Invoke-Endpoint {
         $resp.Close()
         # Pull out the headers we care about (case-insensitive lookup).
         $hdrs = @{}
-        foreach ($name in 'Access-Control-Allow-Origin','Access-Control-Allow-Methods','Access-Control-Allow-Headers','Access-Control-Allow-Credentials','Access-Control-Max-Age','Allow') {
+        foreach ($name in 'Access-Control-Allow-Origin','Access-Control-Allow-Methods','Access-Control-Allow-Headers','Access-Control-Allow-Credentials','Access-Control-Max-Age','Allow','Location','Content-Type','Cache-Control','Last-Modified','ETag','Accept-Ranges','Content-Length') {
             $v = $resp.Headers[$name]
             if ($v) { $hdrs[$name] = [string]$v }
         }
@@ -50,7 +50,7 @@ function Invoke-Endpoint {
             $content = $reader.ReadToEnd()
             $reader.Close()
             $hdrs = @{}
-            foreach ($name in 'Access-Control-Allow-Origin','Access-Control-Allow-Methods','Access-Control-Allow-Headers','Access-Control-Allow-Credentials','Access-Control-Max-Age','Allow') {
+            foreach ($name in 'Access-Control-Allow-Origin','Access-Control-Allow-Methods','Access-Control-Allow-Headers','Access-Control-Allow-Credentials','Access-Control-Max-Age','Allow','Location','Content-Type','Cache-Control','Last-Modified','ETag','Accept-Ranges','Content-Length') {
                 $v = $exResp.Headers[$name]
                 if ($v) { $hdrs[$name] = [string]$v }
             }
@@ -171,9 +171,49 @@ Test -Name "15. Routes JSON includes param metadata + CORS" -ExpectedStatus 200 
     -Uri "$Base/__annotify/routes" `
     -Patterns @('"paramTypes":', '"http://localhost:5173"')
 
+# ---------- Middleware / templates / static (v0.6.0) ----------
+# These tests target the web example app on port 3001 (examples/main-web.ts).
+$WebBase = "http://127.0.0.1:3001"
+
+Test -Name "16. Web app: GET / renders template (text/html)" -ExpectedStatus 200 `
+    -Uri "$WebBase/" `
+    -Patterns @('annotify dashboard', 'static files') `
+    -ExpectHeaders @{ "Content-Type" = "text/html; charset=utf-8" }
+
+Test -Name "17. Web app: GET /static/style.css served" -ExpectedStatus 200 `
+    -Uri "$WebBase/static/style.css" `
+    -Patterns @('annotify example dashboard') `
+    -ExpectHeaders @{ "Content-Type" = "text/css; charset=utf-8" }
+
+Test -Name "18. Web app: GET /static/../package.json blocked (path traversal)" -ExpectedStatus 404 `
+    -Uri "$WebBase/static/../package.json"
+
+Test -Name "19. Web app: GET /raw returns plain HTML via html() helper" -ExpectedStatus 200 `
+    -Uri "$WebBase/raw" `
+    -Patterns @('Plain HTML response', 'helper')
+
+Test -Name "20. Web app: GET /redirect returns 302" -ExpectedStatus 302 `
+    -Uri "$WebBase/redirect" `
+    -ExpectHeaders @{ "Location" = "/" }
+
+Test -Name "21. Web app: GET /protected without token = 401 (per-route @Use)" -ExpectedStatus 401 `
+    -Uri "$WebBase/protected"
+
+Test -Name "22. Web app: GET /protected with X-Token = 200" -ExpectedStatus 200 `
+    -Uri "$WebBase/protected" `
+    -Headers @{ "X-Token" = "valid" } `
+    -Patterns @('You are authenticated')
+
+Test -Name "23. Web app: GET /json still works (existing path unchanged)" -ExpectedStatus 200 `
+    -Uri "$WebBase/json" `
+    -Patterns @('"ok":true')
+
+Test -Name "24. Web app: GET /unknown returns 404 fallthrough" -ExpectedStatus 404 `
+    -Uri "$WebBase/unknown"
+
 Write-Host ""
 if ($failed -eq 0) {
-    Write-Host "=== All 15 smoke tests passed ===" -ForegroundColor Green
+    Write-Host "=== All 24 smoke tests passed ===" -ForegroundColor Green
 } else {
     Write-Host "=== $failed test(s) failed ===" -ForegroundColor Red
     exit 1

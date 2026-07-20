@@ -1,4 +1,5 @@
 import type { RouteMetadata, ParamMeta } from '../types/metadata.js';
+import type { MiddlewareFn } from '../types/middleware.js';
 
 // Storage key on each controller class. In legacy decorator mode TS does not automatically
 // attach Symbol.metadata, so we use a unique property name on the class constructor itself.
@@ -28,7 +29,7 @@ export function consumeParamRegistry(proto: object, methodName: string): ParamMe
 // ---------- Cross-method metadata side-channel ----------
 //
 // Used for per-method data written by method decorators other than the HTTP-verb mapping.
-// Right now: ResponseStatus and CorsConfig (when applied per-route).
+// Right now: ResponseStatus, CorsConfig (when applied per-route), and @Use middleware lists.
 //
 // Keyed by the class prototype (same key as paramRegistry).
 //
@@ -40,6 +41,7 @@ export function consumeParamRegistry(proto: object, methodName: string): ParamMe
 export interface RouteMetaRegistry {
   statusCodes?: Record<string, number>;
   corsByMethod?: Record<string, import('../types/metadata.js').CorsConfig>;
+  middlewaresByMethod?: Record<string, MiddlewareFn[]>;
 }
 
 export function getOrCreateRouteMetaRegistry(proto: object): RouteMetaRegistry {

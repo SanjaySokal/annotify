@@ -47,11 +47,11 @@ export function RequestBody(): ParameterDecorator {
   };
 }
 
-export function RequestHeader(name?: string): ParameterDecorator {
+export function RequestHeader(name?: string, defaultValue?: string): ParameterDecorator {
   return (target, propertyKey, parameterIndex) => {
     const reg = getOrCreateParamRegistry(target);
     const key = String(propertyKey);
     const list = (reg[key] ??= []);
-    list[parameterIndex] = { kind: 'header', name };
+    list[parameterIndex] = { kind: 'header', name, defaultValue };
   };
 }
